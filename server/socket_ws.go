@@ -60,11 +60,13 @@ func NewSocketWsAcceptor(logger *zap.Logger, config Config, sessionRegistry Sess
 			http.Error(w, "Missing or invalid token", 401)
 			return
 		}
+
 		userID, username, vars, expiry, _, ok := parseToken([]byte(config.GetSession().EncryptionKey), token)
 		if !ok || !sessionCache.IsValidSession(userID, expiry, token) {
 			http.Error(w, "Missing or invalid token", 401)
 			return
 		}
+		// todo check session and redirect
 
 		// Extract lang query parameter. Use a default if empty or not present.
 		lang := "en"

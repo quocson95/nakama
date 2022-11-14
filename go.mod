@@ -7,6 +7,7 @@ require (
 	github.com/blugelabs/bluge_segment_api v0.2.0
 	github.com/blugelabs/query_string v0.3.0
 	github.com/dop251/goja v0.0.0-20220124171016-cfb079cdc7b4
+	github.com/go-redis/redis/v8 v8.11.4
 	github.com/gofrs/uuid v4.0.0+incompatible
 	github.com/golang-jwt/jwt/v4 v4.1.0
 	github.com/gorilla/handlers v1.5.1
@@ -19,7 +20,7 @@ require (
 	github.com/jackc/pgtype v1.8.1
 	github.com/jackc/pgx/v4 v4.13.0
 	github.com/rubenv/sql-migrate v0.0.0-20210408115534-a32ed26c37ea
-	github.com/stretchr/testify v1.7.0
+	github.com/stretchr/testify v1.7.1
 	github.com/uber-go/tally/v4 v4.1.1
 	go.uber.org/atomic v1.9.0
 	go.uber.org/zap v1.19.1
@@ -47,6 +48,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgryski/go-metro v0.0.0-20180109044635-280f6062b5bc // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dlclark/regexp2 v1.4.1-0.20201116162257-a2a8dda75c91 // indirect
 	github.com/felixge/httpsnoop v1.0.1 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
@@ -54,6 +56,7 @@ require (
 	github.com/golang/glog v1.0.0 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.1 // indirect
+	github.com/google/go-cmp v0.5.8 // indirect
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
 	github.com/jackc/pgio v1.0.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

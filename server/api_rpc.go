@@ -54,6 +54,9 @@ func (s *ApiServer) RpcFuncHttp(w http.ResponseWriter, r *http.Request) {
 	if auth := r.Header["Authorization"]; len(auth) >= 1 {
 		var token string
 		userID, username, vars, expiry, token, isTokenAuth = parseBearerAuth([]byte(s.config.GetSession().EncryptionKey), auth[0])
+		// todo check session in current node
+
+		//http.Redirect(w, r, "", 302)
 		if !isTokenAuth || !s.sessionCache.IsValidSession(userID, expiry, token) {
 			// Auth token not valid or expired.
 			w.Header().Set("content-type", "application/json")
@@ -63,6 +66,14 @@ func (s *ApiServer) RpcFuncHttp(w http.ResponseWriter, r *http.Request) {
 				s.logger.Debug("Error writing response to client", zap.Error(err))
 			}
 			return
+		}
+		sessionRemoteCache, ok := s.sessionCache.(*SessionRemoteCacheUser)
+		if ok {
+			customSessCache := sessionRemoteCache.Get(userID, token)
+			if customSessCache != nil {
+				http.Redirect(w, r, customSessCache.NodeAddress, 302)
+				return
+			}
 		}
 	} else if httpKey := queryParams.Get("http_key"); httpKey != "" {
 		if httpKey != s.config.GetRuntime().HTTPKey {

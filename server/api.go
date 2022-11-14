@@ -383,6 +383,7 @@ func securityInterceptorFunc(logger *zap.Logger, config Config, sessionCache Ses
 		if !sessionCache.IsValidSession(userID, exp, token) {
 			return nil, status.Error(codes.Unauthenticated, "Auth token invalid")
 		}
+
 		ctx = context.WithValue(context.WithValue(context.WithValue(context.WithValue(ctx, ctxUserIDKey{}, userID), ctxUsernameKey{}, username), ctxVarsKey{}, vars), ctxExpiryKey{}, exp)
 	default:
 		// Unless explicitly defined above, handlers require full user authentication.
