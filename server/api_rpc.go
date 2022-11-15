@@ -71,8 +71,13 @@ func (s *ApiServer) RpcFuncHttp(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			customSessCache := sessionRemoteCache.Get(userID, token)
 			if customSessCache != nil {
-				http.Redirect(w, r, customSessCache.NodeAddress, 302)
-				return
+				if !(s.isThisNodeHost(customSessCache.NodeAddress)) {
+					s.logger.
+						With(zap.String("dest", customSessCache.NodeAddress)).
+						Info("redirect to new location")
+					handlerRedirect(w, r, customSessCache.NodeAddress)
+					return
+				}
 			}
 		}
 	} else if httpKey := queryParams.Get("http_key"); httpKey != "" {

@@ -32,6 +32,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/gofrs/uuid"
 	"github.com/heroiclabs/nakama/v3/ga"
 	"github.com/heroiclabs/nakama/v3/migrate"
@@ -138,7 +139,25 @@ func main() {
 	cookie := newOrLoadCookie(config)
 	metrics := server.NewLocalMetrics(logger, startupLogger, db, config)
 	sessionRegistry := server.NewLocalSessionRegistry(metrics)
-	sessionCache := server.NewLocalSessionCache(config)
+
+	addrRedis := config.GetRedisAddr()
+	startupLogger.With(zap.String("addr", addrRedis)).Info("init redis")
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     addrRedis,
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+	err := rdb.Set(ctx, "key", "value", 0).Err()
+	if err != nil {
+		panic(err)
+	}
+	val, err := rdb.Get(ctx, "key").Result()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("key", val)
+	startupLogger.Info("init remote session cache")
+	sessionCache := server.NewRemoteSessionCache(rdb, startupLogger, config)
 	statusRegistry := server.NewStatusRegistry(logger, config, sessionRegistry, jsonpbMarshaler)
 	tracker := server.StartLocalTracker(logger, config, sessionRegistry, statusRegistry, metrics, jsonpbMarshaler)
 	router := server.NewLocalMessageRouter(sessionRegistry, tracker, jsonpbMarshaler)
@@ -180,7 +199,11 @@ func main() {
 	c := make(chan os.Signal, 2)
 	signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
-	startupLogger.Info("Startup done with custom feature")
+	startupLogger.
+		With(zap.String("address", config.GetSocket().Address)).
+		With(zap.Int("port", config.GetSocket().Port)).
+		With(zap.String("Public ip", config.GetPublicIP())).
+		Info("Startup done with custom feature")
 
 	// Wait for a termination signal.
 	<-c

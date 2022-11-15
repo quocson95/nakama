@@ -292,6 +292,16 @@ func (s *ApiServer) Healthcheck(ctx context.Context, in *emptypb.Empty) (*emptyp
 	return &emptypb.Empty{}, nil
 }
 
+func (s *ApiServer) isThisNodeHost(host string) bool {
+	// remove all port
+	h1 := strings.Split(host, ":")[0]
+	h2 := strings.Split(s.config.GetPublicIP(), ":")[0]
+	if h1 == h2 {
+		return true
+	}
+	return false
+}
+
 func securityInterceptorFunc(logger *zap.Logger, config Config, sessionCache SessionCache, ctx context.Context, req interface{}, info *grpc.UnaryServerInfo) (context.Context, error) {
 	switch info.FullMethod {
 	case "/nakama.api.Nakama/Healthcheck":
