@@ -51,7 +51,8 @@ type Config interface {
 
 	GetPublicIP() string
 
-	GetRedisAddr() string
+	GetRedis() *RedisConfig
+
 	Clone() (Config, error)
 }
 
@@ -425,7 +426,7 @@ type config struct {
 	Matchmaker       *MatchmakerConfig  `yaml:"matchmaker" json:"matchmaker" usage:"Matchmaker settings."`
 	IAP              *IAPConfig         `yaml:"iap" json:"iap" usage:"In-App Purchase settings."`
 	PublicIP         string             `yaml:"publicip" json:"public ip" usage:"Interface get ip"`
-	RedisAddr        string             `yaml:"redis" json:"redis addr" usage:"Interface get ip"`
+	RedisConfig      *RedisConfig       `yaml:"redis" json:"redis addr" usage:"Interface get ip"`
 }
 
 // NewConfig constructs a Config struct which represents server settings, and populates it with default values.
@@ -452,6 +453,7 @@ func NewConfig(logger *zap.Logger) *config {
 		Matchmaker:       NewMatchmakerConfig(),
 		IAP:              NewIAPConfig(),
 		PublicIP:         "",
+		RedisConfig:      &RedisConfig{},
 	}
 }
 
@@ -487,7 +489,7 @@ func (c *config) Clone() (Config, error) {
 		Matchmaker:       &configMatchmaker,
 		IAP:              &configIAP,
 		PublicIP:         c.PublicIP,
-		RedisAddr:        c.RedisAddr,
+		RedisConfig:      c.RedisConfig,
 	}
 	nc.Socket.CertPEMBlock = make([]byte, len(c.Socket.CertPEMBlock))
 	copy(nc.Socket.CertPEMBlock, c.Socket.CertPEMBlock)
@@ -582,8 +584,13 @@ func (c *config) GetPublicIP() string {
 	return c.PublicIP
 }
 
-func (c *config) GetRedisAddr() string {
-	return c.RedisAddr
+func (c *config) GetRedis() *RedisConfig {
+	return c.RedisConfig
+}
+
+type RedisConfig struct {
+	Addr     string `yaml:"addr" json:"addr"`
+	Password string `yaml:"password" json:"password"`
 }
 
 // LoggerConfig is configuration relevant to logging levels and output.

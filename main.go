@@ -135,17 +135,12 @@ func main() {
 	// Access to social provider integrations.
 	socialClient := social.NewClient(logger, 5*time.Second)
 
-	// Start up server components.
-	cookie := newOrLoadCookie(config)
-	metrics := server.NewLocalMetrics(logger, startupLogger, db, config)
-	sessionRegistry := server.NewLocalSessionRegistry(metrics)
-
-	addrRedis := config.GetRedisAddr()
-	startupLogger.With(zap.String("addr", addrRedis)).Info("init redis")
+	redisConfig := config.GetRedis()
+	startupLogger.With(zap.String("addr", redisConfig.Addr)).Info("init redis")
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     addrRedis,
-		Password: "", // no password set
-		DB:       0,  // use default DB
+		Addr:     redisConfig.Addr,
+		Password: redisConfig.Password, // no password set
+		DB:       0,                    // use default DB
 	})
 	err := rdb.Set(ctx, "key", "value", 0).Err()
 	if err != nil {
@@ -157,10 +152,21 @@ func main() {
 	}
 	fmt.Println("key", val)
 	startupLogger.Info("init remote session cache")
+	cmdEvent := server.NewRemoteCmdEvent(rdb)
+
+	// Start up server components.
+	cookie := newOrLoadCookie(config)
+	metrics := server.NewLocalMetrics(logger, startupLogger, db, config)
+	// sessionRegistry := server.NewLocalSessionRegistry(metrics)
+	sessionRegistry := server.NewRemoteSessionRegistry(metrics, cmdEvent, rdb, config.GetPublicIP())
+
 	sessionCache := server.NewRemoteSessionCache(rdb, startupLogger, config)
 	statusRegistry := server.NewStatusRegistry(logger, config, sessionRegistry, jsonpbMarshaler)
 	tracker := server.StartLocalTracker(logger, config, sessionRegistry, statusRegistry, metrics, jsonpbMarshaler)
-	router := server.NewLocalMessageRouter(sessionRegistry, tracker, jsonpbMarshaler)
+	// //old
+	// router := server.NewLocalMessageRouter(sessionRegistry, tracker, jsonpbMarshaler)
+	// //new
+	router := server.NewRemoteMessageRouter(sessionRegistry, tracker, jsonpbMarshaler)
 	leaderboardCache := server.NewLocalLeaderboardCache(logger, startupLogger, db)
 	leaderboardRankCache := server.NewLocalLeaderboardRankCache(ctx, startupLogger, db, config.GetLeaderboard(), leaderboardCache)
 	leaderboardScheduler := server.NewLocalLeaderboardScheduler(logger, db, config, leaderboardCache, leaderboardRankCache)

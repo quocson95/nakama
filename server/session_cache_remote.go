@@ -11,6 +11,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const lenTokenPrint = 10
+
 type SessionRemoteCache interface {
 	SessionCache
 	Get() CustomSessionCache
@@ -42,9 +44,6 @@ func NewRemoteSessionCache(rdb *redis.Client, logger *zap.Logger, conf Config) S
 	return &s
 }
 
-const KeySessionFmt = "session:%s:%s"
-const KeySessionRefreshFmt = "session-refresh:%s:%s"
-
 type CustomSessionCache struct {
 	NodeAddress string
 }
@@ -60,18 +59,36 @@ func ParseCustomSessionId(data []byte) *CustomSessionCache {
 func (s *SessionRemoteCacheUser) getSessionTokens(userID uuid.UUID, token string) (*CustomSessionCache, error) {
 	key := fmt.Sprintf(KeySessionFmt, userID.String(), token)
 	sid, err := s.rdb.Get(s.ctx, key).Result()
-	if err == nil {
-		s.logger.With(zap.String("key", key)).Info("get session cache successful")
-	} else {
-		s.logger.With(zap.String("key", key)).With(zap.Error(err)).Info("get session cache failure")
+	if err != nil {
+		s.logger.With(zap.String("key", shortString(key, lenTokenPrint))).With(zap.Error(err)).Info("get session cache failure")
+		return nil, err
 	}
-	return ParseCustomSessionId([]byte(sid)), err
+	c := ParseCustomSessionId([]byte(sid))
+	s.logger.
+		With(zap.String("key", shortString(key, lenTokenPrint))).
+		With(zap.String("node ip", c.NodeAddress)).
+		Info("get session cache successful")
+
+	return c, err
 }
 
 func (s *SessionRemoteCacheUser) getRefreshTokens(userID uuid.UUID, token string) (*CustomSessionCache, error) {
-	key := fmt.Sprintf(KeySessionRefreshFmt, userID.String(), token)
+	key := fmt.Sprintf(KeySessionCacheRefreshFmt, userID.String(), token)
 	sid, err := s.rdb.Get(s.ctx, key).Result()
-	return ParseCustomSessionId([]byte(sid)), err
+	if err != nil {
+		s.logger.
+			With(zap.String("key", shortString(key, lenTokenPrint))).
+			With(zap.Error(err)).
+			Info("get session refresh failure")
+		return nil, err
+	}
+	c := ParseCustomSessionId([]byte(sid))
+	s.logger.
+		With(zap.String("key", shortString(key, lenTokenPrint))).
+		With(zap.String("node ip", c.NodeAddress)).
+		Info("get session refresh successful")
+
+	return c, err
 }
 
 func (s *SessionRemoteCacheUser) Stop() {
@@ -108,15 +125,15 @@ func (s *SessionRemoteCacheUser) Add(userID uuid.UUID, sessionExp int64, session
 	{
 		key := fmt.Sprintf(KeySessionFmt, userID.String(), sessionToken)
 		_, err := s.rdb.Set(s.ctx, key, customSessionData, time.Duration(sessionExp)*time.Second).Result()
-		if err == nil {
-			s.logger.With(zap.String("key", key)).Info("add session cache successful")
+		if err != nil {
+			s.logger.With(zap.String("key", shortString(key, lenTokenPrint))).Info("add session cache successful")
 		} else {
-			s.logger.With(zap.String("key", key)).With(zap.Error(err)).Info("add session cache failure")
+			s.logger.With(zap.String("key", shortString(key, lenTokenPrint))).With(zap.Error(err)).Info("add session cache failure")
 		}
 	}
 	//// save session refresh token
 	{
-		key := fmt.Sprintf(KeySessionRefreshFmt, userID.String(), refreshToken)
+		key := fmt.Sprintf(KeySessionCacheRefreshFmt, userID.String(), refreshToken)
 		s.rdb.Set(s.ctx, key, customSessionData, time.Duration(refreshExp)*time.Second)
 	}
 }
@@ -125,7 +142,7 @@ func (s *SessionRemoteCacheUser) Get(userID uuid.UUID, sessionToken string) *Cus
 	key := fmt.Sprintf(KeySessionFmt, userID.String(), sessionToken)
 	data, err := s.rdb.Get(s.ctx, key).Result()
 	if err != nil {
-		s.logger.With(zap.String("key", key)).With(zap.Error(err)).Error("Get failed")
+		s.logger.With(zap.String("key", shortString(key, lenTokenPrint))).With(zap.Error(err)).Error("Get failed")
 		return nil
 	}
 	c := CustomSessionCache{}
@@ -141,7 +158,7 @@ func (s *SessionRemoteCacheUser) Remove(userID uuid.UUID, sessionExp int64, sess
 	}
 	//// save session refresh token
 	{
-		key := fmt.Sprintf(KeySessionRefreshFmt, userID.String(), refreshToken)
+		key := fmt.Sprintf(KeySessionCacheRefreshFmt, userID.String(), refreshToken)
 		s.rdb.Del(s.ctx, key)
 	}
 }
@@ -154,7 +171,7 @@ func (s *SessionRemoteCacheUser) RemoveAll(userID uuid.UUID) {
 	}
 	//// save session refresh token
 	{
-		key := fmt.Sprintf(KeySessionRefreshFmt, userID.String(), "*")
+		key := fmt.Sprintf(KeySessionCacheRefreshFmt, userID.String(), "*")
 		s.rdb.Del(s.ctx, key)
 	}
 }
@@ -167,3 +184,11 @@ func (s *SessionRemoteCacheUser) Ban(userIDs []uuid.UUID) {
 }
 
 func (s *SessionRemoteCacheUser) Unban(userIDs []uuid.UUID) {}
+
+func shortString(str string, length int) string {
+	lenStr := len(str)
+	if lenStr <= length {
+		return str
+	}
+	return str[lenStr-length : lenStr]
+}
