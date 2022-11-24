@@ -3,31 +3,39 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/gofrs/uuid"
 	"github.com/heroiclabs/nakama-common/rtapi"
 	"github.com/heroiclabs/nakama-common/runtime"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 type sessionWSRemote struct {
-	logger     *zap.Logger       `json:"-"`
-	Id         uuid.UUID         `json:"id"`
-	Fmt        SessionFormat     `json:"sessionFormat"`
-	UId        uuid.UUID         `json:"userId"`
-	UName      string            `json:"userName"`
-	MapVars    map[string]string `json:"vars"`
-	ExpUnix    int64             `json:"expire"`
-	ClientIp   string            `json:"clientIp"`
-	ClientPORT string            `json:"clientPort"`
-	LANG       string            `json:"lang"`
-	cmdEvent   CmdEvent
-	NodeIp     string `json:"nodeIp"`
+	logger             *zap.Logger `json:"-"`
+	cmdEvent           CmdEvent
+	protojsonMarshaler *protojson.MarshalOptions
+	Id                 uuid.UUID         `json:"id"`
+	Fmt                SessionFormat     `json:"sessionFormat"`
+	UId                uuid.UUID         `json:"userId"`
+	UName              string            `json:"userName"`
+	MapVars            map[string]string `json:"vars"`
+	ExpUnix            int64             `json:"expire"`
+	ClientIp           string            `json:"clientIp"`
+	ClientPORT         string            `json:"clientPort"`
+	LANG               string            `json:"lang"`
+	NodeIp             string            `json:"nodeIp"`
 }
 
-func NewSessionWSRemote() Session {
-	ss := sessionWSRemote{}
+func NewSessionWSRemote(logger *zap.Logger, cmdEvent CmdEvent, protojsonMarshaler *protojson.MarshalOptions) Session {
+	ss := sessionWSRemote{
+		logger:             logger,
+		cmdEvent:           cmdEvent,
+		protojsonMarshaler: protojsonMarshaler,
+	}
 	return &ss
 }
 
@@ -40,13 +48,18 @@ func (sr *sessionWSRemote) Copy(s Session) Session {
 	sr.ClientIp = s.ClientIP()
 	sr.ClientPORT = s.ClientPort()
 	sr.LANG = s.Lang()
+	remoteSs, ok := s.(*sessionWSRemote)
+	if ok {
+		sr.NodeIp = remoteSs.NodeIp
+	}
 	return sr
 }
 
-func NewSessionWSRemoteFromJson(data []byte) Session {
+func (sr *sessionWSRemote) FromJson(data []byte) Session {
 	ss := sessionWSRemote{}
 	json.Unmarshal(data, &ss)
-	return &ss
+	sr.Copy(&ss)
+	return sr
 }
 
 func (s *sessionWSRemote) Logger() *zap.Logger {
@@ -82,6 +95,7 @@ func (s *sessionWSRemote) SetUsername(newUserName string) {
 	// todo send cmd event
 	s.cmdEvent.SendMessage(&CmdMessage{
 		SessionId: s.ID(),
+		NodeIp:    s.NodeIp,
 		TypeCmd:   CmdSessionSetUserName,
 		Reliable:  false,
 		Payload:   []byte(newUserName),
@@ -105,12 +119,39 @@ func (s *sessionWSRemote) Send(envelope *rtapi.Envelope, reliable bool) error {
 		s.logger.Error("Session remote not implemnt send")
 		return errors.New("not implement")
 	}
-	s.cmdEvent.SendMessage(&CmdMessage{
-		SessionId: s.ID(),
-		TypeCmd:   CmdSend,
-		Payload:   []byte(envelope.String()),
-		Reliable:  reliable,
-	})
+	// s.cmdEvent.SendMessage(&CmdMessage{
+	// 	SessionId: s.ID(),
+	// 	NodeIp:    s.NodeIp,
+	// 	TypeCmd:   CmdSend,
+	// 	Payload:   []byte(envelope.String()),
+	// 	Reliable:  reliable,
+	// })
+	var payload []byte
+	var err error
+	switch s.Format() {
+	case SessionFormatProtobuf:
+		payload, err = proto.Marshal(envelope)
+	case SessionFormatJson:
+		fallthrough
+	default:
+		if buf, err := s.protojsonMarshaler.Marshal(envelope); err == nil {
+			payload = buf
+		}
+	}
+	if err != nil {
+		s.logger.Warn("Could not marshal envelope", zap.Error(err))
+		return err
+	}
+
+	if s.logger.Core().Enabled(zap.DebugLevel) {
+		switch envelope.Message.(type) {
+		case *rtapi.Envelope_Error:
+			s.logger.Debug("Sending error message", zap.Binary("payload", payload))
+		default:
+			s.logger.Debug(fmt.Sprintf("Sending %T message", envelope.Message), zap.Any("envelope", envelope))
+		}
+	}
+	s.SendBytes(payload, reliable)
 	return nil
 }
 func (s *sessionWSRemote) SendBytes(payload []byte, reliable bool) error {
@@ -120,6 +161,7 @@ func (s *sessionWSRemote) SendBytes(payload []byte, reliable bool) error {
 	}
 	s.cmdEvent.SendMessage(&CmdMessage{
 		SessionId: s.ID(),
+		NodeIp:    s.NodeIp,
 		TypeCmd:   CmdSendBytes,
 		Payload:   payload,
 		Reliable:  reliable,
@@ -142,6 +184,7 @@ func (s *sessionWSRemote) Close(msg string, reason runtime.PresenceReason, envel
 	payload, _ := json.Marshal(payloadStruct)
 	s.cmdEvent.SendMessage(&CmdMessage{
 		SessionId: s.ID(),
+		NodeIp:    s.NodeIp,
 		TypeCmd:   CmdSendBytes,
 		Payload:   payload,
 		Reliable:  false,

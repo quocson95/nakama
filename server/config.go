@@ -111,7 +111,9 @@ func ParseArgs(logger *zap.Logger, args []string) Config {
 		mainConfig.GetRuntime().Env = append(mainConfig.GetRuntime().Env, fmt.Sprintf("%v=%v", k, v))
 	}
 	sort.Strings(mainConfig.GetRuntime().Env)
-
+	if mainConfig.Socket.Port != 7350 {
+		mainConfig.Console.Port = mainConfig.Socket.Port + 1
+	}
 	return mainConfig
 }
 
@@ -435,7 +437,7 @@ func NewConfig(logger *zap.Logger) *config {
 	if err != nil {
 		logger.Fatal("Error getting current working directory.", zap.Error(err))
 	}
-	return &config{
+	c := &config{
 		Name:             "nakama",
 		Datadir:          filepath.Join(cwd, "data"),
 		ShutdownGraceSec: 0,
@@ -455,6 +457,8 @@ func NewConfig(logger *zap.Logger) *config {
 		PublicIP:         "",
 		RedisConfig:      &RedisConfig{},
 	}
+
+	return c
 }
 
 func (c *config) Clone() (Config, error) {

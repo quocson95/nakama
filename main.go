@@ -152,13 +152,14 @@ func main() {
 	}
 	fmt.Println("key", val)
 	startupLogger.Info("init remote session cache")
-	cmdEvent := server.NewRemoteCmdEvent(rdb)
+	cmdEvent := server.NewRemoteCmdEvent(config, logger, rdb)
 
 	// Start up server components.
 	cookie := newOrLoadCookie(config)
 	metrics := server.NewLocalMetrics(logger, startupLogger, db, config)
 	// sessionRegistry := server.NewLocalSessionRegistry(metrics)
-	sessionRegistry := server.NewRemoteSessionRegistry(metrics, cmdEvent, rdb, config.GetPublicIP())
+	sessionRegistry := server.NewRemoteSessionRegistry(metrics, cmdEvent,
+		rdb, logger, jsonpbMarshaler, config.GetPublicIP())
 
 	sessionCache := server.NewRemoteSessionCache(rdb, startupLogger, config)
 	statusRegistry := server.NewStatusRegistry(logger, config, sessionRegistry, jsonpbMarshaler)
@@ -166,7 +167,7 @@ func main() {
 	// //old
 	// router := server.NewLocalMessageRouter(sessionRegistry, tracker, jsonpbMarshaler)
 	// //new
-	router := server.NewRemoteMessageRouter(sessionRegistry, tracker, jsonpbMarshaler)
+	router := server.NewLocalMessageRouter(sessionRegistry, tracker, jsonpbMarshaler)
 	leaderboardCache := server.NewLocalLeaderboardCache(logger, startupLogger, db)
 	leaderboardRankCache := server.NewLocalLeaderboardRankCache(ctx, startupLogger, db, config.GetLeaderboard(), leaderboardCache)
 	leaderboardScheduler := server.NewLocalLeaderboardScheduler(logger, db, config, leaderboardCache, leaderboardRankCache)

@@ -19,6 +19,7 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20201024163028-a0d42d470451
 	github.com/jackc/pgtype v1.8.1
 	github.com/jackc/pgx/v4 v4.13.0
+	github.com/pkg/errors v0.9.1
 	github.com/rubenv/sql-migrate v0.0.0-20210408115534-a32ed26c37ea
 	github.com/stretchr/testify v1.7.1
 	github.com/uber-go/tally/v4 v4.1.1
@@ -64,7 +65,6 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20200714003250-2b9c44734f2b // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_golang v1.11.1-0.20211129121811-6d5cf25fcc34 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect

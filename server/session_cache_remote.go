@@ -116,7 +116,7 @@ func (s *SessionRemoteCacheUser) IsValidRefresh(userID uuid.UUID, exp int64, tok
 func (s *SessionRemoteCacheUser) Add(userID uuid.UUID, sessionExp int64, sessionToken string, refreshExp int64, refreshToken string) {
 
 	// host := fmt.Sprintf("%s:%d", s.config.GetPublicIP(), s.config.GetSocket().Port)
-	host := fmt.Sprintf("%s:%d", "103.226.250.195", s.config.GetSocket().Port)
+	host := s.config.GetPublicIP()
 	customSession := CustomSessionCache{
 		NodeAddress: host,
 	}
@@ -124,8 +124,8 @@ func (s *SessionRemoteCacheUser) Add(userID uuid.UUID, sessionExp int64, session
 	// save session token
 	{
 		key := fmt.Sprintf(KeySessionFmt, userID.String(), sessionToken)
-		_, err := s.rdb.Set(s.ctx, key, customSessionData, time.Duration(sessionExp)*time.Second).Result()
-		if err != nil {
+		_, err := s.rdb.Set(s.ctx, key, customSessionData, time.Duration(86400)*time.Second).Result()
+		if err == nil {
 			s.logger.With(zap.String("key", shortString(key, lenTokenPrint))).Info("add session cache successful")
 		} else {
 			s.logger.With(zap.String("key", shortString(key, lenTokenPrint))).With(zap.Error(err)).Info("add session cache failure")
@@ -151,15 +151,21 @@ func (s *SessionRemoteCacheUser) Get(userID uuid.UUID, sessionToken string) *Cus
 }
 
 func (s *SessionRemoteCacheUser) Remove(userID uuid.UUID, sessionExp int64, sessionToken string, refreshExp int64, refreshToken string) {
+
 	// remove session token
 	{
+
 		key := fmt.Sprintf(KeySessionFmt, userID.String(), sessionToken)
-		s.rdb.Del(s.ctx, key)
+		_, err := s.rdb.Del(s.ctx, key).Result()
+		s.logger.With(zap.String("key", shortString(key, lenTokenPrint))).
+			With(zap.Error(err)).Info("Remove session key")
 	}
 	//// save session refresh token
 	{
 		key := fmt.Sprintf(KeySessionCacheRefreshFmt, userID.String(), refreshToken)
-		s.rdb.Del(s.ctx, key)
+		_, err := s.rdb.Del(s.ctx, key).Result()
+		s.logger.With(zap.String("key", shortString(key, lenTokenPrint))).
+			With(zap.Error(err)).Info("Remove refresh token key")
 	}
 }
 
@@ -167,12 +173,16 @@ func (s *SessionRemoteCacheUser) RemoveAll(userID uuid.UUID) {
 	// remove session token
 	{
 		key := fmt.Sprintf(KeySessionFmt, userID.String(), "*")
-		s.rdb.Del(s.ctx, key)
+		_, err := s.rdb.Del(s.ctx, key).Result()
+		s.logger.With(zap.String("key", shortString(key, lenTokenPrint))).
+			With(zap.Error(err)).Info("Remove all session user")
 	}
 	//// save session refresh token
 	{
 		key := fmt.Sprintf(KeySessionCacheRefreshFmt, userID.String(), "*")
-		s.rdb.Del(s.ctx, key)
+		_, err := s.rdb.Del(s.ctx, key).Result()
+		s.logger.With(zap.String("key", shortString(key, lenTokenPrint))).
+			With(zap.Error(err)).Info("Remove all refresh token user")
 	}
 }
 
