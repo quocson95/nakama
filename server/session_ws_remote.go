@@ -185,7 +185,7 @@ func (s *sessionWSRemote) Close(msg string, reason runtime.PresenceReason, envel
 	s.cmdEvent.SendMessage(&CmdMessage{
 		SessionId: s.ID(),
 		NodeIp:    s.NodeIp,
-		TypeCmd:   CmdSendBytes,
+		TypeCmd:   CmdRemoveSession,
 		Payload:   payload,
 		Reliable:  false,
 	})

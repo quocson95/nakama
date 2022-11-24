@@ -113,6 +113,12 @@ func (r *RemoteSessionRegistry) Remove(sessionID uuid.UUID) {
 		// not found
 		return
 	}
+	_, err = r.rdb.HDel(r.ctx, key, sessionID.String()).Result()
+	if err != nil {
+		r.logger.With(zap.String("sid", sessionID.String())).
+			With(zap.Error(err)).
+			Error("Session remove on redis failed")
+	}
 	// todo broadcast to all node
 	remoteSession := NewSessionWSRemote(r.logger, r.cmdEvent, r.protojsonMarshaler).(*sessionWSRemote)
 	remoteSession.FromJson([]byte(data))
@@ -122,7 +128,6 @@ func (r *RemoteSessionRegistry) Remove(sessionID uuid.UUID) {
 		Reliable: false,
 		Payload:  sessionID.Bytes(),
 	})
-
 }
 
 func (r *RemoteSessionRegistry) Disconnect(ctx context.Context, sessionID uuid.UUID, reason ...runtime.PresenceReason) error {
