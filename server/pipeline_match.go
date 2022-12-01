@@ -227,6 +227,16 @@ func (p *Pipeline) matchJoin(logger *zap.Logger, session Session, envelope *rtap
 			})
 		}
 	} else {
+		if node != p.node {
+			// match in another node
+			p.pubsubEvent.Pub(
+				NewPubSubDataFromProtoMsg(
+					TypeDataPipeMatchJoin,
+					session.ID().String(),
+					envelope,
+				))
+			return true, nil
+		}
 		// Authoritative match.
 		mode = StreamModeMatchAuthoritative
 
@@ -322,6 +332,16 @@ func (p *Pipeline) matchLeave(logger *zap.Logger, session Session, envelope *rta
 	mode := StreamModeMatchRelayed
 	if matchIDComponents[1] != "" {
 		mode = StreamModeMatchAuthoritative
+		// match in another node
+		if matchIDComponents[1] != p.node {
+			p.pubsubEvent.Pub(
+				NewPubSubDataFromProtoMsg(
+					TypeDataPipeMatchLeave,
+					session.ID().String(),
+					envelope,
+				))
+			return true, nil
+		}
 	}
 
 	// Check and drop the presence if possible, will always succeed.
@@ -358,6 +378,17 @@ func (p *Pipeline) matchDataSend(logger *zap.Logger, session Session, envelope *
 
 	// If it's an authoritative match pass the data to the match handler.
 	if matchIDComponents[1] != "" {
+		node := matchIDComponents[1]
+		// math in diffirent node
+		if node != p.node {
+			p.pubsubEvent.Pub(
+				NewPubSubDataFromProtoMsg(
+					TypeDataPipeMatchDataSend,
+					session.ID().String(),
+					envelope),
+			)
+			return true, nil
+		}
 		if p.tracker.GetLocalBySessionIDStreamUserID(session.ID(), PresenceStream{Mode: StreamModeMatchAuthoritative, Subject: matchID, Label: matchIDComponents[1]}, session.UserID()) == nil {
 			// User is not part of the match.
 			return false, nil

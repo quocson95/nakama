@@ -39,6 +39,7 @@ import (
 	"github.com/heroiclabs/nakama/v3/server"
 	"github.com/heroiclabs/nakama/v3/social"
 	_ "github.com/jackc/pgx/v4/stdlib"
+	"github.com/rueian/rueidis"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -142,6 +143,7 @@ func main() {
 		Password: redisConfig.Password, // no password set
 		DB:       0,                    // use default DB
 	})
+
 	err := rdb.Set(ctx, "key", "value", 0).Err()
 	if err != nil {
 		panic(err)
@@ -151,6 +153,11 @@ func main() {
 		panic(err)
 	}
 	fmt.Println("key", val)
+	rh, err := rueidis.NewClient(rueidis.ClientOption{
+		InitAddress: []string{redisConfig.Addr},
+		Username:    "",
+		Password:    redisConfig.Password,
+	})
 	startupLogger.Info("init remote session cache")
 	cmdEvent := server.NewRemoteCmdEvent(config, logger, rdb)
 
@@ -171,7 +178,8 @@ func main() {
 	leaderboardCache := server.NewLocalLeaderboardCache(logger, startupLogger, db)
 	leaderboardRankCache := server.NewLocalLeaderboardRankCache(ctx, startupLogger, db, config.GetLeaderboard(), leaderboardCache)
 	leaderboardScheduler := server.NewLocalLeaderboardScheduler(logger, db, config, leaderboardCache, leaderboardRankCache)
-	matchRegistry := server.NewLocalMatchRegistry(logger, startupLogger, config, sessionRegistry, tracker, router, metrics, config.GetName())
+	matchRegistry := server.NewLocalMatchRegistry(logger, startupLogger, config, sessionRegistry, tracker,
+		router, metrics, config.GetName(), rh)
 	tracker.SetMatchJoinListener(matchRegistry.Join)
 	tracker.SetMatchLeaveListener(matchRegistry.Leave)
 	streamManager := server.NewLocalStreamManager(config, sessionRegistry, tracker)

@@ -1,0 +1,43 @@
+{
+  "node": "node", 
+  "label_string": "label_string",
+  "label": 
+    {
+      "code": "china",
+      "bet": 10,
+      "open": 1
+    }
+}
+
+{
+  "node": "node", 
+  "label_string": "label_string",
+  "label": 
+    {
+      "code": "china",
+      "bet": 20,
+      "open": 1
+    }
+}
+
+{
+  "node": "node", 
+  "label_string": "label_string",
+  "label": 
+    {
+      "code": "china",
+      "bet": 30,
+      "open": 1
+    }
+}
+
+{
+  "node": "node", 
+  "label_string": "label_string",
+  "label": 
+    {
+      "code": "china",
+      "bet": 40,
+      "open": 1
+    }
+}

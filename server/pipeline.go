@@ -39,6 +39,7 @@ type Pipeline struct {
 	router               MessageRouter
 	runtime              *Runtime
 	node                 string
+	pubsubEvent          PubSubEvent
 }
 
 func NewPipeline(logger *zap.Logger, config Config, db *sql.DB, protojsonMarshaler *protojson.MarshalOptions, protojsonUnmarshaler *protojson.UnmarshalOptions, sessionRegistry SessionRegistry, statusRegistry *StatusRegistry, matchRegistry MatchRegistry, partyRegistry PartyRegistry, matchmaker Matchmaker, tracker Tracker, router MessageRouter, runtime *Runtime) *Pipeline {

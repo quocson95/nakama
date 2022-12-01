@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,10 +32,13 @@ import (
 	"github.com/heroiclabs/nakama-common/api"
 	"github.com/heroiclabs/nakama-common/rtapi"
 	"github.com/heroiclabs/nakama-common/runtime"
+	"github.com/rueian/rueidis"
 	"go.uber.org/atomic"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
+
+const MatchKeyRedisJson = "match:%s"
 
 func init() {
 	// Ensure gob can deal with typical types that might be used in match parameters.
@@ -56,6 +60,7 @@ var (
 )
 
 type MatchIndexEntry struct {
+	ID          string                 `json:"id"`
 	Node        string                 `json:"node"`
 	Label       map[string]interface{} `json:"label"`
 	LabelString string                 `json:"label_string"`
@@ -142,11 +147,13 @@ type LocalMatchRegistry struct {
 
 	stopped   *atomic.Bool
 	stoppedCh chan struct{}
+	rh        rueidis.Client
 }
 
-func NewLocalMatchRegistry(logger, startupLogger *zap.Logger, config Config, sessionRegistry SessionRegistry, tracker Tracker, router MessageRouter, metrics Metrics, node string) MatchRegistry {
-
+func NewLocalMatchRegistry(logger, startupLogger *zap.Logger, config Config, sessionRegistry SessionRegistry, tracker Tracker, router MessageRouter, metrics Metrics, node string, rh rueidis.Client) MatchRegistry {
 	cfg := BlugeInMemoryConfig()
+	var err error
+
 	indexWriter, err := bluge.OpenWriter(cfg)
 	if err != nil {
 		startupLogger.Fatal("Failed to create match registry index", zap.Error(err))
@@ -175,7 +182,9 @@ func NewLocalMatchRegistry(logger, startupLogger *zap.Logger, config Config, ses
 
 		stopped:   atomic.NewBool(false),
 		stoppedCh: make(chan struct{}, 2),
+		rh:        rh,
 	}
+	// todo run redis json index
 
 	go func() {
 		ticker := time.NewTicker(time.Duration(config.GetMatch().LabelUpdateIntervalMs) * time.Millisecond)
@@ -205,8 +214,12 @@ func (r *LocalMatchRegistry) processLabelUpdates(batch *index.Batch) {
 	r.pendingUpdatesMutex.Unlock()
 
 	for id, op := range pendingUpdates {
+		key := fmt.Sprintf(MatchKeyRedisJson, id)
 		if op == nil {
 			batch.Delete(bluge.Identifier(id))
+			if r.rh != nil {
+				r.rh.Do(context.Background(), r.rh.B().Del().Key(key).Build())
+			}
 			continue
 		}
 		doc, err := MapMatchIndexEntry(id, op, r.logger)
@@ -214,6 +227,15 @@ func (r *LocalMatchRegistry) processLabelUpdates(batch *index.Batch) {
 			r.logger.Error("error mapping match index entry to doc: %v", zap.Error(err))
 		}
 		batch.Update(bluge.Identifier(id), doc)
+		code, _ := op.Label["code"].(string)
+		op.Label["code"] = strings.ReplaceAll(code, "-", "")
+		opData, _ := json.Marshal(op)
+		if r.rh != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			r.rh.Do(ctx, r.rh.B().JsonSet().
+				Key(key).Path("$").Value(string(opData)).Build()).ToString()
+		}
 	}
 
 	if err := r.indexWriter.Batch(batch); err != nil {
@@ -349,6 +371,7 @@ func (r *LocalMatchRegistry) UpdateMatchLabel(id uuid.UUID, tickRate int, handle
 
 	idStr := fmt.Sprintf("%v.%v", id.String(), r.node)
 	entry := &MatchIndexEntry{
+		ID:          idStr,
 		Node:        r.node,
 		Label:       labelJSON,
 		TickRate:    tickRate,
@@ -369,6 +392,10 @@ func (r *LocalMatchRegistry) ListMatches(ctx context.Context, limit int, authori
 		return make([]*api.Match, 0), nil
 	}
 
+	if r.rh != nil {
+		r.logger.Info("Do query list match using redis json search")
+		return r.ListMatchesRedisJsonSearch(ctx, limit, authoritative, label, minSize, maxSize, queryString)
+	}
 	indexReader, err := r.indexWriter.Reader()
 	if err != nil {
 		return nil, fmt.Errorf("error accessing index reader: %v", err.Error())
@@ -860,4 +887,273 @@ func MapMatchIndexEntry(id string, in *MatchIndexEntry, logger *zap.Logger) (*bl
 	}
 
 	return rv, nil
+}
+
+func (r *LocalMatchRegistry) ListMatchesRedisJsonSearch(ctx context.Context, limit int, authoritative *wrapperspb.BoolValue, label *wrapperspb.StringValue, minSize *wrapperspb.Int32Value, maxSize *wrapperspb.Int32Value, queryString *wrapperspb.StringValue) ([]*api.Match, error) {
+	var allowRelayed bool
+	// var labelResults *BlugeResult
+	var queryStringStr string
+	var sortBy []string
+	count := int(0)
+	if queryString != nil {
+		if authoritative != nil && !authoritative.Value {
+			// A filter on query is requested but authoritative matches are not allowed.
+			return make([]*api.Match, 0), nil
+		}
+
+		// If there are filters other than query, we don't know which matches will work so get more than the limit.
+		count = limit
+		if minSize != nil || maxSize != nil {
+			count = int(r.matchCount.Load())
+		}
+		if count == 0 {
+			return make([]*api.Match, 0), nil
+		}
+
+		queryStringStr = queryString.Value
+		if queryStringStr == "" {
+			queryStringStr = "*"
+		}
+		sortBy = []string{"-_score", "-create_time"}
+	} else if label != nil {
+		if authoritative != nil && !authoritative.Value {
+			// A filter on label is requested but authoritative matches are not allowed.
+			return make([]*api.Match, 0), nil
+		}
+
+		// If there are filters other than label, we don't know which matches will work so get more than the limit.
+		count = limit
+		if minSize != nil || maxSize != nil {
+			count = int(r.matchCount.Load())
+		}
+		if count == 0 {
+			return make([]*api.Match, 0), nil
+		}
+		// Apply the label filter to the set of known match labels.
+		queryStringStr = "label_string=" + label.Value
+		sortBy = []string{"-create_time"}
+	} else if authoritative == nil || authoritative.Value {
+		// Not using label/query filter but we still need access to the indexed labels to return them
+		// if authoritative matches may be included in the results.
+		count := limit
+		if minSize != nil || maxSize != nil {
+			count = int(r.matchCount.Load())
+		}
+		if count == 0 && authoritative != nil && authoritative.Value {
+			return make([]*api.Match, 0), nil
+		}
+
+		queryStringStr = "*"
+		sortBy = []string{"-create_time"}
+		if authoritative == nil {
+			// Expect a possible mix of authoritative and relayed matches.
+			allowRelayed = true
+		}
+	} else {
+		// Authoritative was strictly false, and there was no label/query filter.
+		allowRelayed = true
+	}
+
+	if len(queryStringStr) == 0 && authoritative != nil && !authoritative.Value {
+		// No results based on label/query, no point in further filtering by size.
+		return make([]*api.Match, 0), nil
+	}
+
+	// Results.
+	results := make([]*api.Match, 0, limit)
+	if len(queryStringStr) == 0 {
+		return results, nil
+	}
+	redisQuery := ConverQueryToRedisSearchSyntax(queryStringStr)
+	_ = sortBy
+	result, err := QueryRedisSearch(r.rh, redisQuery, int64(count), 0)
+	if err != nil {
+		r.logger.With(zap.Error(err)).
+			With(zap.String("Query", redisQuery)).
+			Error("Query redis json seach failed")
+	}
+	listMatchEntry := make([]MatchIndexEntry, 0)
+	for _, r := range result {
+		var m MatchIndexEntry
+		if err := json.Unmarshal([]byte(r), &m); err == nil {
+			listMatchEntry = append(listMatchEntry, m)
+		}
+	}
+	// Use any eligible authoritative matches first.
+	for _, hit := range listMatchEntry {
+		matchIDComponents := strings.SplitN(hit.ID, ".", 2)
+		id := uuid.FromStringOrNil(matchIDComponents[0])
+
+		mh, ok := r.matches.Load(id)
+		if !ok {
+			continue
+		}
+		size := int32(mh.(*MatchHandler).PresenceList.Size())
+
+		if minSize != nil && minSize.Value > size {
+			// Not eligible based on minimum size.
+			continue
+		}
+
+		if maxSize != nil && maxSize.Value < size {
+			// Not eligible based on maximum size.
+			continue
+		}
+
+		if len(hit.LabelString) == 0 {
+			r.logger.Warn("Field not a string in match registry label cache: label_string")
+			continue
+		}
+
+		if hit.TickRate <= 0 {
+			r.logger.Warn("Field not an int in match registry label cache: tick_rate")
+			continue
+		}
+
+		if len(hit.HandlerName) == 0 {
+			r.logger.Warn("Field not an int in match registry label cache: handler_name")
+			continue
+		}
+
+		results = append(results, &api.Match{
+			MatchId:       hit.ID,
+			Authoritative: true,
+			Label:         &wrapperspb.StringValue{Value: hit.LabelString},
+			Size:          size,
+			TickRate:      int32(hit.TickRate),
+			HandlerName:   hit.HandlerName,
+		})
+		if len(results) == limit {
+			return results, nil
+		}
+	}
+
+	// If relayed matches are not allowed still return any available results.
+	if !allowRelayed {
+		return results, nil
+	}
+
+	matches := r.tracker.CountByStreamModeFilter(MatchFilterRelayed)
+	for stream, size := range matches {
+		if stream.Mode != StreamModeMatchRelayed {
+			// Only relayed matches are expected at this point.
+			r.logger.Warn("Ignoring unknown stream mode in match listing operation", zap.Uint8("mode", stream.Mode))
+			continue
+		}
+
+		if minSize != nil && minSize.Value > size {
+			// Not eligible based on minimum size.
+			continue
+		}
+
+		if maxSize != nil && maxSize.Value < size {
+			// Not eligible based on maximum size.
+			continue
+		}
+
+		results = append(results, &api.Match{
+			MatchId:       fmt.Sprintf("%v.%v", stream.Subject.String(), stream.Label),
+			Authoritative: false,
+			Label:         label,
+			Size:          size,
+		})
+		if len(results) == limit {
+			return results, nil
+		}
+	}
+
+	return results, nil
+}
+func ConverQueryToRedisSearchSyntax(query string) string {
+	arrQ := make([]string, 0)
+	for _, s := range strings.Split(query, " ") {
+		s := strings.TrimSpace(s)
+		if len(s) > 0 {
+			if strings.HasPrefix(s, "+label.") {
+				s = strings.TrimPrefix(s, "+label.")
+			}
+			arrQ = append(arrQ, s)
+		}
+	}
+	redisQuery := strings.Builder{}
+	for _, q := range arrQ {
+		ml := strings.Split(q, ":")
+		if len(ml) != 2 {
+			continue
+		}
+		l := ml[1]
+		if len(l) == 0 {
+			continue
+		}
+		l = strings.ReplaceAll(l, "-", "")
+
+		redisQuery.WriteString(fmt.Sprintf("@%s:", ml[0]))
+		st := string(l[0])
+
+		isNumber := false
+		if _, err := strconv.Atoi(l[1:]); err == nil {
+			isNumber = true
+		}
+		switch st {
+		case ">":
+			if isNumber {
+				redisQuery.WriteString(fmt.Sprintf("[%s +inf]", l[1:]))
+			}
+		case "<":
+			if isNumber {
+				redisQuery.WriteString(fmt.Sprintf("[-inf %s]", l[1:]))
+			}
+		case "=":
+			if isNumber {
+				redisQuery.WriteString(fmt.Sprintf("[%s %s]", l[1:], l[1:]))
+			} else {
+				redisQuery.WriteString(fmt.Sprintf("'%s'", l[1:]))
+			}
+		default:
+			if isNumber {
+				redisQuery.WriteString(fmt.Sprintf("[%s %s]", l, l))
+			} else {
+				redisQuery.WriteString(fmt.Sprintf("'%s'", l))
+			}
+		}
+		redisQuery.WriteRune(' ')
+
+	}
+	return redisQuery.String()
+}
+
+func QueryRedisSearch(c rueidis.Client, query string, limit, offset int64) ([]string, error) {
+	zap.L().With(zap.String("query", query)).
+		With(zap.Int64("limit", limit)).
+		With(zap.Int64("offset", offset)).
+		Info("QueryRedisSearch")
+	q := c.B().FtSearch().
+		Index("idx_match").
+		Query(query).
+		Sortby("create_time").Desc().
+		Limit().OffsetNum(offset, limit)
+	resp := c.Do(context.Background(), q.Build())
+	result, err := resp.ToMessage()
+	if err != nil {
+		return nil, err
+	}
+	ml := make([]string, 0)
+
+	if result.IsArray() {
+		arr, _ := result.ToArray()
+		for _, msg := range arr {
+
+			if msg.IsArray() {
+				arr2, _ := msg.ToArray()
+				for _, msg2 := range arr2 {
+					if msg2.IsString() {
+						// fmt.Println(msg2.ToString())
+						str, _ := msg2.ToString()
+						ml = append(ml, str)
+					}
+				}
+			}
+		}
+	}
+	return ml, nil
 }
