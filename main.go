@@ -153,6 +153,8 @@ func main() {
 		panic(err)
 	}
 	fmt.Println("key", val)
+
+	pubSubHandler := server.NewPubSubHandler(rdb, config.GetName())
 	rh, err := rueidis.NewClient(rueidis.ClientOption{
 		InitAddress: []string{redisConfig.Addr},
 		Username:    "",
@@ -194,7 +196,8 @@ func main() {
 
 	leaderboardScheduler.Start(runtime)
 
-	pipeline := server.NewPipeline(logger, config, db, jsonpbMarshaler, jsonpbUnmarshaler, sessionRegistry, statusRegistry, matchRegistry, partyRegistry, matchmaker, tracker, router, runtime)
+	pipeline := server.NewPipeline(logger, config, db, jsonpbMarshaler, jsonpbUnmarshaler, sessionRegistry, statusRegistry, matchRegistry, partyRegistry, 
+		matchmaker, tracker, router, runtime, pubSubHandler )
 	statusHandler := server.NewLocalStatusHandler(logger, sessionRegistry, matchRegistry, tracker, metrics, config.GetName())
 
 	apiServer := server.StartApiServer(logger, startupLogger, db, jsonpbMarshaler, jsonpbUnmarshaler, config, socialClient, leaderboardCache, leaderboardRankCache, sessionRegistry, sessionCache, statusRegistry, matchRegistry, matchmaker, tracker, router, metrics, pipeline, runtime)

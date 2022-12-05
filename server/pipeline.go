@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gofrs/uuid"
 	"github.com/heroiclabs/nakama-common/rtapi"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -42,8 +43,12 @@ type Pipeline struct {
 	pubsubEvent          PubSubEvent
 }
 
-func NewPipeline(logger *zap.Logger, config Config, db *sql.DB, protojsonMarshaler *protojson.MarshalOptions, protojsonUnmarshaler *protojson.UnmarshalOptions, sessionRegistry SessionRegistry, statusRegistry *StatusRegistry, matchRegistry MatchRegistry, partyRegistry PartyRegistry, matchmaker Matchmaker, tracker Tracker, router MessageRouter, runtime *Runtime) *Pipeline {
-	return &Pipeline{
+func NewPipeline(logger *zap.Logger, config Config, db *sql.DB,
+	protojsonMarshaler *protojson.MarshalOptions, protojsonUnmarshaler *protojson.UnmarshalOptions,
+	sessionRegistry SessionRegistry, statusRegistry *StatusRegistry, matchRegistry MatchRegistry,
+	partyRegistry PartyRegistry, matchmaker Matchmaker, tracker Tracker,
+	router MessageRouter, runtime *Runtime, pubsubEvent PubSubEvent) *Pipeline {
+	p := &Pipeline{
 		logger:               logger,
 		config:               config,
 		db:                   db,
@@ -58,9 +63,29 @@ func NewPipeline(logger *zap.Logger, config Config, db *sql.DB, protojsonMarshal
 		router:               router,
 		runtime:              runtime,
 		node:                 config.GetName(),
+		pubsubEvent:          pubsubEvent,
 	}
+	pubsubEvent.Sub(TypeDataPipeMatchCreate, p.handlerPubSubEvent)
+	return p
 }
 
+func (p *Pipeline) handlerPubSubEvent(pubData PubSubData) {
+	sessionId, err := uuid.FromString(pubData.SessionId)
+	if err != nil {
+		p.logger.With(zap.String("session id", pubData.SessionId)).
+			With(zap.Error(err)).Error("Parse session id failed")
+		return
+	}
+	session := p.sessionRegistry.Get(sessionId)
+	var envelope rtapi.Envelope
+	err = p.protojsonUnmarshaler.Unmarshal(pubData.Data, &envelope)
+	if err != nil {
+		p.logger.With(zap.ByteString("payload", pubData.Data)).
+			With(zap.Error(err)).Error("Parse payload failed")
+		return
+	}
+	p.ProcessRequest(p.logger, session, &envelope)
+}
 func (p *Pipeline) ProcessRequest(logger *zap.Logger, session Session, in *rtapi.Envelope) bool {
 	if logger.Core().Enabled(zap.DebugLevel) { // remove extra heavy reflection processing
 		logger.Debug(fmt.Sprintf("Received %T message", in.Message), zap.Any("message", in.Message))

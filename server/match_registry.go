@@ -150,7 +150,9 @@ type LocalMatchRegistry struct {
 	rh        rueidis.Client
 }
 
-func NewLocalMatchRegistry(logger, startupLogger *zap.Logger, config Config, sessionRegistry SessionRegistry, tracker Tracker, router MessageRouter, metrics Metrics, node string, rh rueidis.Client) MatchRegistry {
+func NewLocalMatchRegistry(logger, startupLogger *zap.Logger, config Config,
+	sessionRegistry SessionRegistry, tracker Tracker, router MessageRouter,
+	metrics Metrics, node string, rh rueidis.Client) MatchRegistry {
 	cfg := BlugeInMemoryConfig()
 	var err error
 

@@ -231,6 +231,7 @@ func (p *Pipeline) matchJoin(logger *zap.Logger, session Session, envelope *rtap
 			// match in another node
 			p.pubsubEvent.Pub(
 				NewPubSubDataFromProtoMsg(
+					node,
 					TypeDataPipeMatchJoin,
 					session.ID().String(),
 					envelope,
@@ -336,6 +337,7 @@ func (p *Pipeline) matchLeave(logger *zap.Logger, session Session, envelope *rta
 		if matchIDComponents[1] != p.node {
 			p.pubsubEvent.Pub(
 				NewPubSubDataFromProtoMsg(
+					matchIDComponents[1],
 					TypeDataPipeMatchLeave,
 					session.ID().String(),
 					envelope,
@@ -383,6 +385,7 @@ func (p *Pipeline) matchDataSend(logger *zap.Logger, session Session, envelope *
 		if node != p.node {
 			p.pubsubEvent.Pub(
 				NewPubSubDataFromProtoMsg(
+					node,
 					TypeDataPipeMatchDataSend,
 					session.ID().String(),
 					envelope),
