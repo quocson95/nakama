@@ -51,6 +51,7 @@ func NewPubSubDataFromProtoMsg(node string, typeData TypeData, sessionId string,
 }
 
 type PubSubEvent interface {
+	Stop()
 	Pub(PubSubData) error
 	Sub(TypeData, FnSubEvent)
 }
@@ -58,11 +59,13 @@ type PubSubEvent interface {
 type PubSubHandler struct {
 	redisClient   *redis.Client
 	mapFnSubEvent map[TypeData][]FnSubEvent
+	ctx           context.Context
 }
 
 func NewPubSubHandler(redisClient *redis.Client, node string) PubSubEvent {
 	p := &PubSubHandler{
 		redisClient: redisClient,
+		ctx:         context.Background(),
 	}
 	p.mapFnSubEvent = make(map[TypeData][]FnSubEvent, 0)
 
@@ -70,26 +73,37 @@ func NewPubSubHandler(redisClient *redis.Client, node string) PubSubEvent {
 		return p
 	}
 	go func() {
-		ctx := context.Background()
-		subscriber := p.redisClient.Subscribe(ctx, node)
 		for {
-			msg, err := subscriber.ReceiveMessage(ctx)
-			if err != nil {
-				return
-			}
-			var data PubSubData
-			err = json.Unmarshal([]byte(msg.Payload), &data)
-			if err != nil {
-				continue
-			}
-			listFn, exist := p.mapFnSubEvent[data.TypeData]
-			if !exist {
-				continue
-			}
-			for _, fn := range listFn {
-				fn(data)
+			select {
+			case <-p.ctx.Done():
+				{
+					return
+				}
+			default:
+				{
+					subscriber := p.redisClient.Subscribe(p.ctx, node)
+					for {
+						msg, err := subscriber.ReceiveMessage(p.ctx)
+						if err != nil {
+							return
+						}
+						var data PubSubData
+						err = json.Unmarshal([]byte(msg.Payload), &data)
+						if err != nil {
+							continue
+						}
+						listFn, exist := p.mapFnSubEvent[data.TypeData]
+						if !exist {
+							continue
+						}
+						for _, fn := range listFn {
+							fn(data)
+						}
+					}
+				}
 			}
 		}
+
 	}()
 	return p
 }
@@ -98,7 +112,7 @@ func (p *PubSubHandler) Pub(pubData PubSubData) error {
 	if p.redisClient == nil {
 		return errors.New("redis client is nil")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(p.ctx, 5*time.Second)
 	defer cancel()
 	_, err := p.redisClient.Publish(ctx, pubData.Node, pubData).Result()
 	if err != nil {
@@ -116,4 +130,8 @@ func (p *PubSubHandler) Sub(typeData TypeData, fnCallBack FnSubEvent) {
 	}
 	v = append(v, fnCallBack)
 	p.mapFnSubEvent[typeData] = v
+}
+
+func (p *PubSubHandler) Stop() {
+	p.ctx.Done()
 }

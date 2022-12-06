@@ -1119,7 +1119,11 @@ func ConverQueryToRedisSearchSyntax(query string) string {
 		}
 		l = strings.ReplaceAll(l, "-", "")
 
-		redisQuery.WriteString(fmt.Sprintf("@%s:", ml[0]))
+		if ml[0] == "mock_code_card" {
+			redisQuery.WriteString(fmt.Sprintf("@%s:", "mockCodeCard"))
+		} else {
+			redisQuery.WriteString(fmt.Sprintf("@%s:", ml[0]))
+		}
 		st := string(l[0])
 
 		isNumber := false
