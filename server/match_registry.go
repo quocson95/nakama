@@ -67,6 +67,7 @@ type MatchIndexEntry struct {
 	TickRate    int                    `json:"tick_rate"`
 	HandlerName string                 `json:"handler_name"`
 	CreateTime  int64                  `json:"create_time"`
+	Size        int64                  `json:"size"`
 }
 
 type MatchJoinAttemptResult struct {
@@ -733,6 +734,14 @@ func (r *LocalMatchRegistry) Join(id uuid.UUID, presences []*MatchPresence) {
 
 	// Doesn't matter if the call queue was full here. If the match is being closed then joins don't matter anyway.
 	mh.(*MatchHandler).QueueJoin(presences, true)
+	if r.rh != nil {
+		size := r.matchCount.Load()
+		key := fmt.Sprintf(MatchKeyRedisJson, id.String())
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		r.rh.Do(ctx, r.rh.B().JsonSet().
+			Key(key).Path(".label.size").Value(strconv.FormatInt(size, 10)).Build()).ToString()
+	}
 }
 
 func (r *LocalMatchRegistry) Leave(id uuid.UUID, presences []*MatchPresence) {
@@ -743,6 +752,14 @@ func (r *LocalMatchRegistry) Leave(id uuid.UUID, presences []*MatchPresence) {
 
 	// Doesn't matter if the call queue was full here. If the match is being closed then leaves don't matter anyway.
 	mh.(*MatchHandler).QueueLeave(presences)
+	if r.rh != nil {
+		size := r.matchCount.Load()
+		key := fmt.Sprintf(MatchKeyRedisJson, id.String())
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		r.rh.Do(ctx, r.rh.B().JsonSet().
+			Key(key).Path(".label.size").Value(strconv.FormatInt(size, 10)).Build()).ToString()
+	}
 }
 
 func (r *LocalMatchRegistry) Kick(stream PresenceStream, presences []*MatchPresence) {
@@ -899,6 +916,7 @@ func (r *LocalMatchRegistry) ListMatchesRedisJsonSearch(ctx context.Context, lim
 	count := int(0)
 	if queryString != nil {
 		if authoritative != nil && !authoritative.Value {
+			r.logger.Info("queryString not nil but authoritative is nill or false")
 			// A filter on query is requested but authoritative matches are not allowed.
 			return make([]*api.Match, 0), nil
 		}
@@ -906,9 +924,10 @@ func (r *LocalMatchRegistry) ListMatchesRedisJsonSearch(ctx context.Context, lim
 		// If there are filters other than query, we don't know which matches will work so get more than the limit.
 		count = limit
 		if minSize != nil || maxSize != nil {
-			count = int(r.matchCount.Load())
+			count = 100
 		}
 		if count == 0 {
+			r.logger.Info("limit = 0")
 			return make([]*api.Match, 0), nil
 		}
 
@@ -919,6 +938,7 @@ func (r *LocalMatchRegistry) ListMatchesRedisJsonSearch(ctx context.Context, lim
 		sortBy = []string{"-_score", "-create_time"}
 	} else if label != nil {
 		if authoritative != nil && !authoritative.Value {
+			r.logger.Info("label not nil but authoritative is nill or false")
 			// A filter on label is requested but authoritative matches are not allowed.
 			return make([]*api.Match, 0), nil
 		}
@@ -926,7 +946,7 @@ func (r *LocalMatchRegistry) ListMatchesRedisJsonSearch(ctx context.Context, lim
 		// If there are filters other than label, we don't know which matches will work so get more than the limit.
 		count = limit
 		if minSize != nil || maxSize != nil {
-			count = int(r.matchCount.Load())
+			count = 10
 		}
 		if count == 0 {
 			return make([]*api.Match, 0), nil
@@ -939,9 +959,10 @@ func (r *LocalMatchRegistry) ListMatchesRedisJsonSearch(ctx context.Context, lim
 		// if authoritative matches may be included in the results.
 		count := limit
 		if minSize != nil || maxSize != nil {
-			count = int(r.matchCount.Load())
+			count = 10
 		}
 		if count == 0 && authoritative != nil && authoritative.Value {
+			r.logger.Info("count == 0 or authoritative is nill or false")
 			return make([]*api.Match, 0), nil
 		}
 
@@ -958,21 +979,29 @@ func (r *LocalMatchRegistry) ListMatchesRedisJsonSearch(ctx context.Context, lim
 
 	if len(queryStringStr) == 0 && authoritative != nil && !authoritative.Value {
 		// No results based on label/query, no point in further filtering by size.
+		r.logger.Info("queryStringStr is empty or authoritative is nill or false")
 		return make([]*api.Match, 0), nil
 	}
 
 	// Results.
 	results := make([]*api.Match, 0, limit)
 	if len(queryStringStr) == 0 {
+		r.logger.Info("queryStringStr is empty")
 		return results, nil
 	}
 	redisQuery := ConverQueryToRedisSearchSyntax(queryStringStr)
 	_ = sortBy
+
 	result, err := QueryRedisSearch(r.rh, redisQuery, int64(count), 0)
 	if err != nil {
 		r.logger.With(zap.Error(err)).
 			With(zap.String("Query", redisQuery)).
 			Error("Query redis json seach failed")
+	} else {
+		r.logger.
+			With(zap.String("Query", redisQuery)).
+			With(zap.Strings("result", result)).
+			Info("Query redis json seach done")
 	}
 	listMatchEntry := make([]MatchIndexEntry, 0)
 	for _, r := range result {
@@ -983,15 +1012,16 @@ func (r *LocalMatchRegistry) ListMatchesRedisJsonSearch(ctx context.Context, lim
 	}
 	// Use any eligible authoritative matches first.
 	for _, hit := range listMatchEntry {
-		matchIDComponents := strings.SplitN(hit.ID, ".", 2)
-		id := uuid.FromStringOrNil(matchIDComponents[0])
+		// matchIDComponents := strings.SplitN(hit.ID, ".", 2)
+		// id := uuid.FromStringOrNil(matchIDComponents[0])
 
-		mh, ok := r.matches.Load(id)
-		if !ok {
-			continue
-		}
-		size := int32(mh.(*MatchHandler).PresenceList.Size())
+		// mh, ok := r.matches.Load(id)
+		// if !ok {
+		// 	continue
+		// }
 
+		// size := int32(mh.(*MatchHandler).PresenceList.Size())
+		size := int32(hit.Size)
 		if minSize != nil && minSize.Value > size {
 			// Not eligible based on minimum size.
 			continue
@@ -1113,7 +1143,7 @@ func ConverQueryToRedisSearchSyntax(query string) string {
 			}
 		default:
 			if isNumber {
-				redisQuery.WriteString(fmt.Sprintf("[%s %s]", l, l))
+				redisQuery.WriteString(fmt.Sprintf("[%s +inf]", l))
 			} else {
 				redisQuery.WriteString(fmt.Sprintf("'%s'", l))
 			}
@@ -1125,10 +1155,7 @@ func ConverQueryToRedisSearchSyntax(query string) string {
 }
 
 func QueryRedisSearch(c rueidis.Client, query string, limit, offset int64) ([]string, error) {
-	zap.L().With(zap.String("query", query)).
-		With(zap.Int64("limit", limit)).
-		With(zap.Int64("offset", offset)).
-		Info("QueryRedisSearch")
+
 	q := c.B().FtSearch().
 		Index("idx_match").
 		Query(query).

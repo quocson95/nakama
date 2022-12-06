@@ -15,10 +15,11 @@ import (
 type TypeData int
 
 const (
-	TypeDataPipeMatchCreate   TypeData = 1
-	TypeDataPipeMatchDataSend TypeData = 2
-	TypeDataPipeMatchJoin     TypeData = 3
-	TypeDataPipeMatchLeave    TypeData = 4
+	TypeDataPipeMatchList TypeData = iota
+	TypeDataPipeMatchCreate
+	TypeDataPipeMatchDataSend
+	TypeDataPipeMatchJoin
+	TypeDataPipeMatchLeave
 )
 
 type FnSubEvent func(PubSubData)

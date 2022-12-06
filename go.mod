@@ -83,6 +83,5 @@ require (
 	github.com/RoaringBitmap/roaring v0.9.4 // indirect
 	github.com/blevesearch/vellum v1.0.7 // indirect
 	github.com/google/go-cmp v0.5.8 // indirect
-	github.com/nitishm/go-rejson/v4 v4.1.0
 	github.com/prometheus/client_golang v1.11.1-0.20211129121811-6d5cf25fcc34 // indirect
 )
