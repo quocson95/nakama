@@ -9,8 +9,8 @@ socket:
   max_request_size_bytes: 131072
 iap:
   google:
-    client_email: "iap-api@pc-api-6197869242494695589-160.iam.gserviceaccount.com"
-    private_key: "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC2XCzqfbPzWeu/\nzy0HqeP4/bZ2xBrwwXYXSCmN9x36ZqWZs7UpiuJdlQc5QSOYs9Vv+bViX7BjgcS0\nrizwoVt94oYM1jzig5qk39gVD0Q1gbFCB2UmoHOQLsYvHihW2evai9GVz/7eo9DZ\njv6+wbubj0ujd7HwCAVe2W5+wXj/4bQtcMc4OhER2FKt+n97TdCbnGRBI8FASb72\nd1H8QHq8YYt0NAi3g1X9TB/1tTID183+JhmuQhk6U6UtvPEpgDoRK2e1hIqExL2E\noFmXN0xxeWzb26R2UYub0VArOZnmSivFomE+2A/fhCqYr4++8CEuUSYtfgNsg4uz\nfr2wSKHPAgMBAAECggEAG8ke/Y+vq+RHRnozu0IzPoyx5kC/y2/peryqZZDXRtWo\nZStQ7tvUMpFy1fzLMV4ypurJAgyLHMOjYYBUep8As2/2IDNDIvm4cLy7+OF9nBrU\naQzQExBJlhjPu6grBKi/BhVdwXzoBwELi8qnnWXOxxy7V/9J48U6buxO/g35TiDR\nbR/KXGH4rccq+xNr68RNnjbzQEAwbuUtijVZr405srV3Qi9wprKT6imwsJPmoBGz\nav21sk939J9gEWXYN8IYYFDCHgnXnzh5N6dKCKhnah8P+rUClbvSdJ2U9YcSbKSw\n8xqMxrV261u4tCttwXo/s02UjESlmnWp1b+Wrz3cEQKBgQD9xrtMNjGVhAB63pkR\n9GMKNZI4YGdqSXjQgt6Ep/wezTQJRbKkfut7qDD0pUxea+vWV0FRAYwyYwsThQLl\nVfWG9mAv7iQlYAmHVVV8PUQzt2DbfBZgmaXFfDLuY/KTswuJV6jJHRHov5h18XkU\nnWy9elVYmuN3HbxSRJcvcQ2rKQKBgQC39T5geC8zen/3Z8fdItNTGMx6OidoJ9ok\nFz9iQWrxzvK7m74nnu3fw/pkYhec17kmw1jiNVVFHzzCJNyzKLUkX9azWmeBU0BB\nUP3k4aI4JxUn1WI5DMN92dFBk2wLf0fBJ/2uoDVSw1JLNkeQxU5pLNhZ6X+s7ply\nWEPUCwl8NwKBgQD7bAWqFtL/H31ePeUHHcl1luebxR8P9WSlp9KPOOKXHZRdT1kS\nkc/5fgOqjY3gyikn/OBwQglE7k1N9GyPC5+qK7PWKKhVAxXNp6R+5zAH0Lk8Gm8N\nG4xZ4JeRCSKOZEectWU6gvt4TUHeL/NWkjTmcCnYE/Qh0ir+kof6b5YsKQKBgQC0\nRcE7CIw5BnMhILLcIqS1ajf4D8VObL95Xs7emv0Suptk/tr6OOUjxAo9FWPOcBkh\nw433IAzQECyalUUyzVG2s7TTTmTgd5UgbR5ijjtKjAJPZu06uydYzXwjpzTaj4Dh\n6S7RUm7vDDo5OpgnZzPQHgJnGkvkTG5Tf+v4gFhrQQKBgQD2IbzSaf5DP+GJ2i2G\n5b4UsYLvBsrIjs0SLuhCQqZPnD9xKd2Tvk189uF0B/dRpQsTT/Tcnbs2Q6c/Pkew\ncOB+7tcv8pDPki4JcZOnf49ga66WVfnHpS/y8VGufz99g0SkyXMyUwFDORm3rdUF\n9sHxzV+JQS8zXT/KHOXtvs5kBg==\n-----END PRIVATE KEY-----\n"
+    client_email: ""
+    private_key: ""
 publicip: 173.249.58.114
 redis: 
   addr: 173.249.58.114:7379
