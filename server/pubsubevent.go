@@ -90,61 +90,25 @@ type PubSubHandler struct {
 	mapFnSubEvent map[TypeData][]FnSubEvent
 	ctx           context.Context
 	logger        *zap.Logger
+	chanDataRecv  chan PubSubData
+	numWorker     int
 }
 
 func NewPubSubHandler(redisClient *redis.Client, logger *zap.Logger, node string) PubSubEvent {
 	p := &PubSubHandler{
-		redisClient: redisClient,
-		ctx:         context.Background(),
-		logger:      logger,
+		redisClient:  redisClient,
+		ctx:          context.Background(),
+		logger:       logger,
+		chanDataRecv: make(chan PubSubData, 1000),
+		numWorker:    100,
 	}
 	p.mapFnSubEvent = make(map[TypeData][]FnSubEvent, 0)
 
 	if p.redisClient == nil {
 		return p
 	}
-	go func() {
-		isStop := false
-		for {
-			if isStop {
-				return
-			}
-			subscriber := p.redisClient.Subscribe(p.ctx, node)
-			if _, err := subscriber.Receive(p.ctx); err != nil {
-				p.logger.With(zap.Error(err)).
-					Error("failed to receive from control PubSub")
-				time.Sleep(5 * time.Second)
-				continue
-			}
-			controlCh := subscriber.Channel()
-			p.logger.Info("start listening on control PubSub")
-			for {
-				select {
-				case <-p.ctx.Done():
-					isStop = true
-					break
-				case msg := <-controlCh:
-					{
-						// for msg := range controlCh {
-						p.logger.With(zap.String("payload", msg.Payload)).Info("recv messag")
-						var data PubSubData
-						err := json.Unmarshal([]byte(msg.Payload), &data)
-						if err != nil {
-							continue
-						}
-						listFn, exist := p.mapFnSubEvent[data.TypeData]
-						if !exist {
-							continue
-						}
-						for _, fn := range listFn {
-							fn(data)
-						}
-					}
-				}
-			}
-		}
-
-	}()
+	go p.initWorker()
+	go p.listenEvent(node)
 	return p
 }
 
@@ -182,4 +146,68 @@ func (p *PubSubHandler) Sub(typeData TypeData, fnCallBack FnSubEvent) {
 
 func (p *PubSubHandler) Stop() {
 	p.ctx.Done()
+}
+
+func (p *PubSubHandler) initWorker() {
+	for i := 0; i < p.numWorker; i++ {
+		go func() {
+			for data := range p.chanDataRecv {
+				listFn, exist := p.mapFnSubEvent[data.TypeData]
+				if !exist {
+					continue
+				}
+				for _, fn := range listFn {
+					fn(data)
+				}
+			}
+		}()
+	}
+}
+
+func (p *PubSubHandler) listenEvent(node string) {
+	isStop := false
+	for {
+		if isStop {
+			return
+		}
+		subscriber := p.redisClient.Subscribe(p.ctx, node)
+		if _, err := subscriber.Receive(p.ctx); err != nil {
+			p.logger.With(zap.Error(err)).
+				Error("failed to receive from control PubSub")
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		controlCh := subscriber.Channel()
+		p.logger.Info("start listening on control PubSub")
+		for {
+			select {
+			case <-p.ctx.Done():
+				isStop = true
+				break
+			case msg := <-controlCh:
+				{
+					// for msg := range controlCh {
+					p.logger.With(zap.String("payload", msg.Payload)).Info("recv messag")
+					var data PubSubData
+					err := json.Unmarshal([]byte(msg.Payload), &data)
+					if err != nil {
+						continue
+					}
+					// listFn, exist := p.mapFnSubEvent[data.TypeData]
+					// if !exist {
+					// 	continue
+					// }
+					// for _, fn := range listFn {
+					// 	fn(data)
+					// }
+					select {
+					case p.chanDataRecv <- data:
+					default:
+						p.logger.With(zap.String("payload", msg.Payload)).Error("queue handler full, ignore message")
+					}
+
+				}
+			}
+		}
+	}
 }
