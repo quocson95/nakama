@@ -154,21 +154,21 @@ func main() {
 	}
 	fmt.Println("key", val)
 
-	pubSubHandler := server.NewPubSubHandler(rdb, config.GetName())
+	pubSubHandler := server.NewPubSubHandler(rdb, logger, config.GetName())
 	rh, err := rueidis.NewClient(rueidis.ClientOption{
 		InitAddress: []string{redisConfig.Addr},
 		Username:    "",
 		Password:    redisConfig.Password,
 	})
 	startupLogger.Info("init remote session cache")
-	cmdEvent := server.NewRemoteCmdEvent(config, logger, rdb)
+	// cmdEvent := server.NewRemoteCmdEvent(config, logger, rdb)
 
 	// Start up server components.
 	cookie := newOrLoadCookie(config)
 	metrics := server.NewLocalMetrics(logger, startupLogger, db, config)
 	// sessionRegistry := server.NewLocalSessionRegistry(metrics)
-	sessionRegistry := server.NewRemoteSessionRegistry(metrics, cmdEvent,
-		rdb, logger, jsonpbMarshaler, config.GetPublicIP())
+	sessionRegistry := server.NewRemoteSessionRegistry(metrics, pubSubHandler,
+		rdb, logger, jsonpbMarshaler, config.GetName())
 
 	sessionCache := server.NewRemoteSessionCache(rdb, startupLogger, config)
 	statusRegistry := server.NewStatusRegistry(logger, config, sessionRegistry, jsonpbMarshaler)
@@ -196,10 +196,11 @@ func main() {
 
 	leaderboardScheduler.Start(runtime)
 
-	pipeline := server.NewPipeline(logger, config, db, jsonpbMarshaler, jsonpbUnmarshaler, sessionRegistry, statusRegistry, matchRegistry, partyRegistry, 
-		matchmaker, tracker, router, runtime, pubSubHandler )
+	pipeline := server.NewPipeline(logger, config, db, jsonpbMarshaler, jsonpbUnmarshaler, sessionRegistry, statusRegistry, matchRegistry, partyRegistry,
+		matchmaker, tracker, router, runtime, pubSubHandler)
 	statusHandler := server.NewLocalStatusHandler(logger, sessionRegistry, matchRegistry, tracker, metrics, config.GetName())
 
+	server.RegisterPubSubHandlerSession(pubSubHandler, sessionRegistry, tracker, logger)
 	apiServer := server.StartApiServer(logger, startupLogger, db, jsonpbMarshaler, jsonpbUnmarshaler, config, socialClient, leaderboardCache, leaderboardRankCache, sessionRegistry, sessionCache, statusRegistry, matchRegistry, matchmaker, tracker, router, metrics, pipeline, runtime)
 	consoleServer := server.StartConsoleServer(logger, startupLogger, db, config, tracker, router, sessionCache, statusHandler, runtimeInfo, matchRegistry, configWarnings, semver, leaderboardCache, leaderboardRankCache, apiServer, cookie)
 
@@ -271,6 +272,7 @@ func main() {
 	sessionCache.Stop()
 	sessionRegistry.Stop()
 	metrics.Stop(logger)
+	pubSubHandler.Stop()
 
 	if gaenabled {
 		_ = ga.SendSessionStop(telemetryClient, gacode, cookie)

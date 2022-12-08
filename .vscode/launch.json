@@ -11,7 +11,8 @@
             "request": "launch",
             "mode": "auto",
             "program": "${fileDirname}" ,
-            "buildFlags": "--trimpath --mod=vendor",
+            "buildFlags": "--trimpath --mod=vendor", 
+            
             "args": ["--database.address","postgres:localdb@173.249.58.114:6432/nakama",
             "--logger.level","DEBUG",
             "--session.token_expiry_sec","7200",

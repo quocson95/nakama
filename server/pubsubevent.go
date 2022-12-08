@@ -20,6 +20,14 @@ const (
 	TypeDataPipeMatchDataSend
 	TypeDataPipeMatchJoin
 	TypeDataPipeMatchLeave
+
+	TypeDataRemoveSession
+	TypeDataSessionSetUserName
+	TypeDataSessionRegSingleSesion
+	TypeDataSessionRegDisconnect
+	TypeDataMessage
+	TypeDataSend
+	TypeDataSendBytes
 )
 
 type FnSubEvent func(PubSubData)
@@ -28,6 +36,26 @@ type PubSubData struct {
 	TypeData  TypeData
 	SessionId string
 	Data      []byte
+}
+
+func (psd PubSubData) MarshalBinary() ([]byte, error) {
+	return json.Marshal(psd)
+}
+
+type CmdMessage struct {
+	Reliable bool   `json:"reliable"`
+	Payload  []byte `json:"payload"`
+}
+type SessionClosePayload struct {
+	Msg       string   `json:"msg"`
+	Reason    uint8    `json:"reason"`
+	Envelopes []string `json:"envelopes"`
+}
+
+type SessionDisconnectPayload struct {
+	Msg       string   `json:"msg"`
+	Reasons   []uint8  `json:"reasons"`
+	SessionId []string `json:"sessionId"`
 }
 
 var jsonpbUnmarshaler = &protojson.UnmarshalOptions{
@@ -53,6 +81,7 @@ func NewPubSubDataFromProtoMsg(node string, typeData TypeData, sessionId string,
 type PubSubEvent interface {
 	Stop()
 	Pub(PubSubData) error
+	PubInf(PubSubData, interface{}) error
 	Sub(TypeData, FnSubEvent)
 }
 
@@ -60,12 +89,14 @@ type PubSubHandler struct {
 	redisClient   *redis.Client
 	mapFnSubEvent map[TypeData][]FnSubEvent
 	ctx           context.Context
+	logger        *zap.Logger
 }
 
-func NewPubSubHandler(redisClient *redis.Client, node string) PubSubEvent {
+func NewPubSubHandler(redisClient *redis.Client, logger *zap.Logger, node string) PubSubEvent {
 	p := &PubSubHandler{
 		redisClient: redisClient,
 		ctx:         context.Background(),
+		logger:      logger,
 	}
 	p.mapFnSubEvent = make(map[TypeData][]FnSubEvent, 0)
 
@@ -85,8 +116,10 @@ func NewPubSubHandler(redisClient *redis.Client, node string) PubSubEvent {
 					for {
 						msg, err := subscriber.ReceiveMessage(p.ctx)
 						if err != nil {
+							p.logger.With(zap.Error(err)).Error("recv message err")
 							return
 						}
+						p.logger.With(zap.String("payload", msg.Payload)).Info("recv message err")
 						var data PubSubData
 						err = json.Unmarshal([]byte(msg.Payload), &data)
 						if err != nil {
@@ -116,11 +149,19 @@ func (p *PubSubHandler) Pub(pubData PubSubData) error {
 	defer cancel()
 	_, err := p.redisClient.Publish(ctx, pubData.Node, pubData).Result()
 	if err != nil {
-		zap.L().With(zap.String("node", pubData.Node)).
+		p.logger.With(zap.String("node", pubData.Node)).
 			With(zap.Error(err)).Error("publish message failed")
 		return err
 	}
+	p.logger.With(zap.String("node", pubData.Node)).
+		With(zap.Error(err)).Info("publish message success")
 	return nil
+}
+
+func (p *PubSubHandler) PubInf(data PubSubData, body interface{}) error {
+	d, _ := json.Marshal(body)
+	data.Data = d
+	return p.Pub(data)
 }
 
 func (p *PubSubHandler) Sub(typeData TypeData, fnCallBack FnSubEvent) {

@@ -16,7 +16,7 @@ import (
 
 type sessionWSRemote struct {
 	logger             *zap.Logger `json:"-"`
-	cmdEvent           CmdEvent
+	pubSub             PubSubEvent
 	protojsonMarshaler *protojson.MarshalOptions
 	Id                 uuid.UUID         `json:"id"`
 	Fmt                SessionFormat     `json:"sessionFormat"`
@@ -27,13 +27,14 @@ type sessionWSRemote struct {
 	ClientIp           string            `json:"clientIp"`
 	ClientPORT         string            `json:"clientPort"`
 	LANG               string            `json:"lang"`
-	NodeIp             string            `json:"nodeIp"`
+	// NodeIp             string            `json:"nodeIp"`
+	Node string `json:"node"`
 }
 
-func NewSessionWSRemote(logger *zap.Logger, cmdEvent CmdEvent, protojsonMarshaler *protojson.MarshalOptions) Session {
+func NewSessionWSRemote(logger *zap.Logger, pubSub PubSubEvent, protojsonMarshaler *protojson.MarshalOptions) Session {
 	ss := sessionWSRemote{
 		logger:             logger,
-		cmdEvent:           cmdEvent,
+		pubSub:             pubSub,
 		protojsonMarshaler: protojsonMarshaler,
 	}
 	return &ss
@@ -50,7 +51,7 @@ func (sr *sessionWSRemote) Copy(s Session) Session {
 	sr.LANG = s.Lang()
 	remoteSs, ok := s.(*sessionWSRemote)
 	if ok {
-		sr.NodeIp = remoteSs.NodeIp
+		sr.Node = remoteSs.Node
 	}
 	return sr
 }
@@ -93,13 +94,23 @@ func (s *sessionWSRemote) Username() string {
 }
 func (s *sessionWSRemote) SetUsername(newUserName string) {
 	// todo send cmd event
-	s.cmdEvent.SendMessage(&CmdMessage{
-		SessionId: s.ID(),
-		NodeIp:    s.NodeIp,
-		TypeCmd:   CmdSessionSetUserName,
-		Reliable:  false,
-		Payload:   []byte(newUserName),
-	})
+	// s.pubSub.SendMessage(&CmdMessage{
+	// 	SessionId: s.ID(),
+	// 	NodeIp:    s.NodeIp,
+	// 	TypeCmd:   CmdSessionSetUserName,
+	// 	Reliable:  false,
+	// 	Payload:   []byte(newUserName),
+	// })
+	s.pubSub.PubInf(
+		PubSubData{
+			Node:      s.Node,
+			TypeData:  TypeDataSessionSetUserName,
+			SessionId: s.ID().String(),
+		},
+		CmdMessage{
+			Reliable: false,
+			Payload:  []byte(newUserName),
+		})
 }
 
 func (s *sessionWSRemote) Expiry() int64 {
@@ -115,7 +126,7 @@ func (s *sessionWSRemote) Format() SessionFormat {
 }
 func (s *sessionWSRemote) Send(envelope *rtapi.Envelope, reliable bool) error {
 	// todo send cmd event
-	if s.cmdEvent == nil {
+	if s.pubSub == nil {
 		s.logger.Error("Session remote not implemnt send")
 		return errors.New("not implement")
 	}
@@ -155,22 +166,33 @@ func (s *sessionWSRemote) Send(envelope *rtapi.Envelope, reliable bool) error {
 	return nil
 }
 func (s *sessionWSRemote) SendBytes(payload []byte, reliable bool) error {
-	if s.cmdEvent == nil {
+	if s.pubSub == nil {
 		s.logger.Error("Session remote not implemnt send")
 		return errors.New("not implement")
 	}
-	s.cmdEvent.SendMessage(&CmdMessage{
-		SessionId: s.ID(),
-		NodeIp:    s.NodeIp,
-		TypeCmd:   CmdSendBytes,
-		Payload:   payload,
-		Reliable:  reliable,
-	})
+	s.logger.With(zap.String("node", s.Node)).Info(string(payload))
+	// s.cmdEvent.SendMessage(&CmdMessage{
+	// 	SessionId: s.ID(),
+	// 	NodeIp:    s.NodeIp,
+	// 	TypeCmd:   CmdSendBytes,
+	// 	Payload:   payload,
+	// 	Reliable:  reliable,
+	// })
+	s.pubSub.PubInf(
+		PubSubData{
+			Node:      s.Node,
+			SessionId: s.ID().String(),
+			TypeData:  TypeDataSendBytes,
+		},
+		CmdMessage{
+			Reliable: reliable,
+			Payload:  payload,
+		})
 	return nil
 }
 
 func (s *sessionWSRemote) Close(msg string, reason runtime.PresenceReason, envelopes ...*rtapi.Envelope) {
-	if s.cmdEvent == nil {
+	if s.pubSub == nil {
 		s.logger.Error("Session remote not implemnt send")
 		return
 	}
@@ -182,11 +204,21 @@ func (s *sessionWSRemote) Close(msg string, reason runtime.PresenceReason, envel
 		payloadStruct.Envelopes = append(payloadStruct.Envelopes, envelope.String())
 	}
 	payload, _ := json.Marshal(payloadStruct)
-	s.cmdEvent.SendMessage(&CmdMessage{
-		SessionId: s.ID(),
-		NodeIp:    s.NodeIp,
-		TypeCmd:   CmdRemoveSession,
-		Payload:   payload,
-		Reliable:  false,
-	})
+	// s.cmdEvent.SendMessage(&CmdMessage{
+	// 	SessionId: s.ID(),
+	// 	NodeIp:    s.NodeIp,
+	// 	TypeCmd:   CmdRemoveSession,
+	// 	Payload:   payload,
+	// 	Reliable:  false,
+	// })
+	s.pubSub.PubInf(
+		PubSubData{
+			Node:      s.Node,
+			SessionId: s.ID().String(),
+			TypeData:  TypeDataSendBytes,
+		},
+		CmdMessage{
+			Reliable: false,
+			Payload:  payload,
+		})
 }

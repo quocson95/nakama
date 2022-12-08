@@ -66,6 +66,9 @@ func NewPipeline(logger *zap.Logger, config Config, db *sql.DB,
 		pubsubEvent:          pubsubEvent,
 	}
 	pubsubEvent.Sub(TypeDataPipeMatchCreate, p.handlerPubSubEvent)
+	pubsubEvent.Sub(TypeDataPipeMatchJoin, p.handlerPubSubEvent)
+	pubsubEvent.Sub(TypeDataPipeMatchLeave, p.handlerPubSubEvent)
+	pubsubEvent.Sub(TypeDataPipeMatchDataSend, p.handlerPubSubEvent)
 	return p
 }
 
