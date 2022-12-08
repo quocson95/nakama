@@ -104,24 +104,31 @@ func NewPubSubHandler(redisClient *redis.Client, logger *zap.Logger, node string
 		return p
 	}
 	go func() {
+		isStop := false
 		for {
-			select {
-			case <-p.ctx.Done():
-				{
-					return
-				}
-			default:
-				{
-					subscriber := p.redisClient.Subscribe(p.ctx, node)
-					for {
-						msg, err := subscriber.ReceiveMessage(p.ctx)
-						if err != nil {
-							p.logger.With(zap.Error(err)).Error("recv message err")
-							return
-						}
-						p.logger.With(zap.String("payload", msg.Payload)).Info("recv message err")
+			if isStop {
+				return
+			}
+			subscriber := p.redisClient.Subscribe(p.ctx, node)
+			if _, err := subscriber.Receive(p.ctx); err != nil {
+				p.logger.With(zap.Error(err)).
+					Error("failed to receive from control PubSub")
+				time.Sleep(5 * time.Second)
+				continue
+			}
+			controlCh := subscriber.Channel()
+			p.logger.Info("start listening on control PubSub")
+			for {
+				select {
+				case <-p.ctx.Done():
+					isStop = true
+					break
+				case msg := <-controlCh:
+					{
+						// for msg := range controlCh {
+						p.logger.With(zap.String("payload", msg.Payload)).Info("recv messag")
 						var data PubSubData
-						err = json.Unmarshal([]byte(msg.Payload), &data)
+						err := json.Unmarshal([]byte(msg.Payload), &data)
 						if err != nil {
 							continue
 						}
