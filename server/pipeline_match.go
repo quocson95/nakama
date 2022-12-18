@@ -15,6 +15,7 @@
 package server
 
 import (
+	"context"
 	"crypto"
 	"fmt"
 	"strings"
@@ -269,7 +270,7 @@ func (p *Pipeline) matchJoin(logger *zap.Logger, session Session, envelope *rtap
 				Username: session.Username(),
 				Format:   session.Format(),
 			}
-			if success, _ := p.tracker.Track(session.Context(), session.ID(), stream, session.UserID(), m, false); success {
+			if success, _ := p.tracker.Track(session.Context(), session.ID(), stream, session.UserID(), m, true); success {
 				if p.config.GetSession().SingleMatch {
 					// Kick the user from any other matches they may be part of.
 					p.tracker.UntrackLocalByModes(session.ID(), matchStreamModes, stream)
@@ -306,7 +307,7 @@ func (p *Pipeline) matchJoin(logger *zap.Logger, session Session, envelope *rtap
 		},
 	}}}
 	session.Send(out, true)
-
+	p.rh.Set(context.Background(), "s:"+session.ID().String(), p.node, 1*time.Hour)
 	return true, out
 }
 
@@ -320,6 +321,7 @@ func (p *Pipeline) matchLeave(logger *zap.Logger, session Session, envelope *rta
 		}}}, true)
 		return false, nil
 	}
+	_, _ = p.rh.Del(context.Background(), "s:"+session.ID().String()).Result()
 	matchID, err := uuid.FromString(matchIDComponents[0])
 	if err != nil {
 		session.Send(&rtapi.Envelope{Cid: envelope.Cid, Message: &rtapi.Envelope_Error{Error: &rtapi.Error{

@@ -107,6 +107,8 @@ func (r *RemoteSessionRegistry) Remove(sessionID uuid.UUID) {
 	// session in another node
 
 	key := KeyHsetSessionRegFmt
+	_, _ = r.rdb.Del(context.Background(), "s:"+sessionID.String()).Result()
+
 	data, err := r.rdb.HGet(r.ctx, key, sessionID.String()).Result()
 	if err != nil {
 		r.logger.With(zap.String("sid", sessionID.String())).
@@ -130,6 +132,9 @@ func (r *RemoteSessionRegistry) Remove(sessionID uuid.UUID) {
 	// 	Reliable: false,
 	// 	Payload:  sessionID.Bytes(),
 	// })
+	if remoteSession.Node == r.node {
+		return
+	}
 	r.pubSub.PubInf(
 		PubSubData{
 			Node:      remoteSession.Node,

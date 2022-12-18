@@ -12,22 +12,36 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type TypeData int
+type TypeData string
+
+func (t TypeData) String() string {
+	return string(t)
+}
 
 const (
-	TypeDataPipeMatchList TypeData = iota
-	TypeDataPipeMatchCreate
-	TypeDataPipeMatchDataSend
-	TypeDataPipeMatchJoin
-	TypeDataPipeMatchLeave
+	TypeDataPipeMessage             TypeData = "TypeDataPipeMessage"
+	TypeDataPipeChannelJoin         TypeData = "TypeDataPipeChannelJoin"
+	TypeDataPipeChannelLeave        TypeData = "TypeDataPipeChannelLeave"
+	TypeDataPipeChannelMesageSend   TypeData = "TypeDataPipeChannelMesageSend"
+	TypeDataPipeChannelMesageUpdate TypeData = "TypeDataPipeChannelMesageUpdate"
+	TypeDataPipeChannelMesageRemove TypeData = "TypeDataPipeChannelMesageRemove"
 
-	TypeDataRemoveSession
-	TypeDataSessionSetUserName
-	TypeDataSessionRegSingleSesion
-	TypeDataSessionRegDisconnect
-	TypeDataMessage
-	TypeDataSend
-	TypeDataSendBytes
+	TypeDataPipeMatchList     TypeData = "TypeDataPipeMatchList"
+	TypeDataPipeMatchCreate   TypeData = "TypeDataPipeMatchCreate"
+	TypeDataPipeMatchDataSend TypeData = "TypeDataPipeMatchDataSend"
+	TypeDataPipeMatchJoin     TypeData = "TypeDataPipeMatchJoin"
+	TypeDataPipeMatchLeave    TypeData = "TypeDataPipeMatchLeave"
+
+	TypeDataPipePing TypeData = "TypeDataPipePing"
+	TypeDataPipePong TypeData = "TypeDataPipePong"
+
+	TypeDataRemoveSession          TypeData = "TypeDataRemoveSession"
+	TypeDataSessionSetUserName     TypeData = "TypeDataSessionSetUserName"
+	TypeDataSessionRegSingleSesion TypeData = "TypeDataSessionRegSingleSesion"
+	TypeDataSessionRegDisconnect   TypeData = "TypeDataSessionRegDisconnect"
+	TypeDataMessage                TypeData = "TypeDataMessage"
+	TypeDataSend                   TypeData = "TypeDataSend"
+	TypeDataSendBytes              TypeData = "TypeDataSendBytes"
 )
 
 type FnSubEvent func(PubSubData)
@@ -83,9 +97,11 @@ type PubSubEvent interface {
 	Pub(PubSubData) error
 	PubInf(PubSubData, interface{}) error
 	Sub(TypeData, FnSubEvent)
+	SubSliceType(FnSubEvent, ...TypeData)
 }
 
 type PubSubHandler struct {
+	thisNode      string
 	redisClient   *redis.Client
 	mapFnSubEvent map[TypeData][]FnSubEvent
 	ctx           context.Context
@@ -101,6 +117,7 @@ func NewPubSubHandler(redisClient *redis.Client, logger *zap.Logger, node string
 		logger:       logger,
 		chanDataRecv: make(chan PubSubData, 1000),
 		numWorker:    100,
+		thisNode:     node,
 	}
 	p.mapFnSubEvent = make(map[TypeData][]FnSubEvent, 0)
 
@@ -116,6 +133,20 @@ func (p *PubSubHandler) Pub(pubData PubSubData) error {
 	if p.redisClient == nil {
 		return errors.New("redis client is nil")
 	}
+	if pubData.Node == "" {
+		err := errors.New("Missing node info")
+		p.logger.With(zap.Any("pubData", pubData)).
+			With(zap.Error(err)).
+			Error("reject pub message")
+		return err
+	}
+	if pubData.Node == p.thisNode {
+		err := errors.New("Republish to current node")
+		p.logger.With(zap.Any("pubData", pubData)).
+			With(zap.Error(err)).
+			Error("reject pub message")
+		return err
+	}
 	ctx, cancel := context.WithTimeout(p.ctx, 5*time.Second)
 	defer cancel()
 	_, err := p.redisClient.Publish(ctx, pubData.Node, pubData).Result()
@@ -130,9 +161,17 @@ func (p *PubSubHandler) Pub(pubData PubSubData) error {
 }
 
 func (p *PubSubHandler) PubInf(data PubSubData, body interface{}) error {
-	d, _ := json.Marshal(body)
-	data.Data = d
-	return p.Pub(data)
+	switch body.(type) {
+	case string:
+		str := body.(string)
+		data.Data = []byte(str)
+		return p.Pub(data)
+	default:
+		d, _ := json.Marshal(body)
+		data.Data = d
+		return p.Pub(data)
+	}
+
 }
 
 func (p *PubSubHandler) Sub(typeData TypeData, fnCallBack FnSubEvent) {
@@ -142,6 +181,12 @@ func (p *PubSubHandler) Sub(typeData TypeData, fnCallBack FnSubEvent) {
 	}
 	v = append(v, fnCallBack)
 	p.mapFnSubEvent[typeData] = v
+}
+
+func (p *PubSubHandler) SubSliceType(fnCallBack FnSubEvent, listTypeData ...TypeData) {
+	for _, typeData := range listTypeData {
+		p.Sub(typeData, fnCallBack)
+	}
 }
 
 func (p *PubSubHandler) Stop() {

@@ -124,7 +124,7 @@ func (s *SessionRemoteCacheUser) Add(userID uuid.UUID, sessionExp int64, session
 	// save session token
 	{
 		key := fmt.Sprintf(KeySessionFmt, userID.String(), sessionToken)
-		_, err := s.rdb.Set(s.ctx, key, customSessionData, time.Duration(86400)*time.Second).Result()
+		_, err := s.rdb.Set(s.ctx, key, customSessionData, time.Duration(sessionExp-time.Now().Unix())*time.Second).Result()
 		if err == nil {
 			s.logger.With(zap.String("key", shortString(key, lenTokenPrint))).Info("add session cache successful")
 		} else {
@@ -134,7 +134,7 @@ func (s *SessionRemoteCacheUser) Add(userID uuid.UUID, sessionExp int64, session
 	//// save session refresh token
 	{
 		key := fmt.Sprintf(KeySessionCacheRefreshFmt, userID.String(), refreshToken)
-		s.rdb.Set(s.ctx, key, customSessionData, time.Duration(refreshExp)*time.Second)
+		s.rdb.Set(s.ctx, key, customSessionData, time.Duration(refreshExp-time.Now().Unix())*time.Second).Result()
 	}
 }
 

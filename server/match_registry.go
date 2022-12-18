@@ -351,6 +351,10 @@ func (r *LocalMatchRegistry) RemoveMatch(id uuid.UUID, stream PresenceStream) {
 	r.pendingUpdatesMutex.Lock()
 	r.pendingUpdates[idStr] = nil
 	r.pendingUpdatesMutex.Unlock()
+	key := fmt.Sprintf(MatchKeyRedisJson, id)
+	if r.rh != nil {
+		r.rh.Do(context.Background(), r.rh.B().Del().Key(key).Build())
+	}
 
 	// If there are no more matches in this registry and a shutdown was initiated then signal
 	// that the process is complete.

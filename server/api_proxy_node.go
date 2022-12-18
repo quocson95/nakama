@@ -276,7 +276,7 @@ func handlerPubSubEvent(data PubSubData, sessionRegistry SessionRegistry, tracke
 	// }
 	logger.
 		With(zap.String("session", data.SessionId)).
-		With(zap.Int("type cmd", int(data.TypeData))).
+		With(zap.String("type cmd", data.TypeData.String())).
 		Debug("Exec cmd remote sesion")
 	sessionId, _ := uuid.FromString(data.SessionId)
 	switch data.TypeData {
@@ -297,6 +297,7 @@ func handlerPubSubEvent(data PubSubData, sessionRegistry SessionRegistry, tracke
 			logger.
 				With(zap.Error(err)).
 				Error("Parse payload CmdSessionRegDisconnect")
+			return
 		}
 		listSessionUuid := make([]uuid.UUID, 0, len(sessionDisStruct.SessionId))
 		for _, str := range sessionDisStruct.SessionId {
@@ -321,6 +322,7 @@ func handlerPubSubEvent(data PubSubData, sessionRegistry SessionRegistry, tracke
 			logger.
 				With(zap.String("session id", data.SessionId)).
 				Error("Session is nil")
+			return
 		}
 		envelope := &rtapi.Envelope{}
 		err = json.Unmarshal(cmdMsg.Payload, envelope)
@@ -329,6 +331,7 @@ func handlerPubSubEvent(data PubSubData, sessionRegistry SessionRegistry, tracke
 				With(zap.Error(err)).
 				With(zap.ByteString("payload", cmdMsg.Payload)).
 				Error("Parse payload rtapi.Envelope failed")
+			return
 		}
 		err = session.Send(envelope, cmdMsg.Reliable)
 		if err != nil {
@@ -337,6 +340,7 @@ func handlerPubSubEvent(data PubSubData, sessionRegistry SessionRegistry, tracke
 				With(zap.ByteString("payload", cmdMsg.Payload)).
 				With(zap.Error(err)).
 				Error("Session Send failed")
+			return
 		}
 	case TypeDataSendBytes:
 		session := sessionRegistry.Get(sessionId)
@@ -344,6 +348,7 @@ func handlerPubSubEvent(data PubSubData, sessionRegistry SessionRegistry, tracke
 			logger.
 				With(zap.String("session id", data.SessionId)).
 				Error("Session is nil")
+			return
 		}
 		err = session.SendBytes(cmdMsg.Payload, cmdMsg.Reliable)
 		if err != nil {
@@ -352,6 +357,7 @@ func handlerPubSubEvent(data PubSubData, sessionRegistry SessionRegistry, tracke
 				With(zap.ByteString("payload", cmdMsg.Payload)).
 				With(zap.Error(err)).
 				Error("Session Send failed")
+			return
 		}
 	}
 }

@@ -15,10 +15,12 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/gofrs/uuid"
 	"github.com/heroiclabs/nakama-common/rtapi"
 	"go.uber.org/zap"
@@ -41,13 +43,15 @@ type Pipeline struct {
 	runtime              *Runtime
 	node                 string
 	pubsubEvent          PubSubEvent
+	rh                   *redis.Client
 }
 
 func NewPipeline(logger *zap.Logger, config Config, db *sql.DB,
 	protojsonMarshaler *protojson.MarshalOptions, protojsonUnmarshaler *protojson.UnmarshalOptions,
 	sessionRegistry SessionRegistry, statusRegistry *StatusRegistry, matchRegistry MatchRegistry,
 	partyRegistry PartyRegistry, matchmaker Matchmaker, tracker Tracker,
-	router MessageRouter, runtime *Runtime, pubsubEvent PubSubEvent) *Pipeline {
+	router MessageRouter, runtime *Runtime, pubsubEvent PubSubEvent,
+	rh *redis.Client) *Pipeline {
 	p := &Pipeline{
 		logger:               logger,
 		config:               config,
@@ -64,11 +68,26 @@ func NewPipeline(logger *zap.Logger, config Config, db *sql.DB,
 		runtime:              runtime,
 		node:                 config.GetName(),
 		pubsubEvent:          pubsubEvent,
+		rh:                   rh,
 	}
-	pubsubEvent.Sub(TypeDataPipeMatchCreate, p.handlerPubSubEvent)
-	pubsubEvent.Sub(TypeDataPipeMatchJoin, p.handlerPubSubEvent)
-	pubsubEvent.Sub(TypeDataPipeMatchLeave, p.handlerPubSubEvent)
-	pubsubEvent.Sub(TypeDataPipeMatchDataSend, p.handlerPubSubEvent)
+	// pubsubEvent.Sub(TypeDataPipeMatchCreate, p.handlerPubSubEvent)
+	// pubsubEvent.Sub(TypeDataPipeMatchJoin, p.handlerPubSubEvent)
+	// pubsubEvent.Sub(TypeDataPipeMatchLeave, p.handlerPubSubEvent)
+	// pubsubEvent.Sub(TypeDataPipeMatchDataSend, p.handlerPubSubEvent)
+	pubsubEvent.SubSliceType(p.handlerPubSubEvent,
+		TypeDataPipeMessage,
+		TypeDataPipeMatchCreate,
+		TypeDataPipeMatchJoin,
+		TypeDataPipeChannelLeave,
+		TypeDataPipeMatchDataSend,
+		TypeDataPipeChannelJoin,
+		TypeDataPipeChannelLeave,
+		TypeDataPipeChannelMesageRemove,
+		TypeDataPipeChannelMesageSend,
+		TypeDataPipeChannelMesageUpdate,
+		TypeDataPipePing,
+		TypeDataPipePong,
+	)
 	return p
 }
 
@@ -87,6 +106,7 @@ func (p *Pipeline) handlerPubSubEvent(pubData PubSubData) {
 			With(zap.Error(err)).Error("Parse payload failed")
 		return
 	}
+
 	p.ProcessRequest(p.logger, session, &envelope)
 }
 func (p *Pipeline) ProcessRequest(logger *zap.Logger, session Session, in *rtapi.Envelope) bool {
@@ -100,6 +120,23 @@ func (p *Pipeline) ProcessRequest(logger *zap.Logger, session Session, in *rtapi
 			Message: "Missing message.",
 		}}}, true)
 		return false
+	}
+
+	node, _ := p.rh.Get(context.Background(), "s:"+session.ID().String()).Result()
+	if node != "" && node != p.node {
+		p.pubsubEvent.Pub(
+			NewPubSubDataFromProtoMsg(
+				node,
+				TypeDataPipeMessage,
+				session.ID().String(),
+				in,
+			))
+		// switch in.Message.(type) {
+		// case *rtapi.Envelope_MatchDataSend:
+		// 	data, _ := jsonpbMarshaler.Marshal(in)
+		// 	p.logger.With(zap.ByteString("data", data)).Debug("debug data send")
+		// }
+		return true
 	}
 
 	var pipelineFn func(*zap.Logger, Session, *rtapi.Envelope) (bool, *rtapi.Envelope)
