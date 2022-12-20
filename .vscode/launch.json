@@ -14,10 +14,16 @@
             "buildFlags": "--trimpath --mod=vendor", 
             
             "args": ["--database.address","postgres:localdb@173.249.58.114:6432/nakama",
+            "--name", "nakama-local-1",
             "--logger.level","DEBUG",
             "--session.token_expiry_sec","7200",
             "--config","/Users/sondq/Documents/dev/nakama/config.yaml",
-            "--runtime.path","/Users/sondq/Documents/dev/nakama/modules"]
+            "--runtime.path","/Users/sondq/Documents/dev/nakama/modules_debug"],
+            "substitutePath": [
+                {
+                    "from": "/Users/sondq/Documents/dev/nakama",
+                    "to": "github.com/heroiclabs/nakama/v3",
+                }]
         }
     ]
 }

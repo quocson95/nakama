@@ -26,6 +26,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const SignalKeepMatchAlive string = "keep_match_alive"
+
 type MatchDataMessage struct {
 	UserID      uuid.UUID
 	SessionID   uuid.UUID
@@ -187,10 +189,14 @@ func NewMatchHandler(logger *zap.Logger, config Config, sessionRegistry SessionR
 				// Match has been stopped.
 				return
 			case <-mh.ticker.C:
+				if mh.tick%(mh.Rate*20) == 0 {
+					matchRegistry.Signal(context.Background(), mh.IDStr, SignalKeepMatchAlive)
+				}
 				// Tick, queue a match loop invocation.
 				if !mh.queueCall(loop) {
 					return
 				}
+
 			case call := <-mh.callCh:
 				// An invocation to one of the match functions, not including join attempts or signals.
 				call(mh)

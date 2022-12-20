@@ -147,7 +147,7 @@ func (p *PubSubHandler) Pub(pubData PubSubData) error {
 			Error("reject pub message")
 		return err
 	}
-	ctx, cancel := context.WithTimeout(p.ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 	defer cancel()
 	_, err := p.redisClient.Publish(ctx, pubData.Node, pubData).Result()
 	if err != nil {

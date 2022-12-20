@@ -60,14 +60,15 @@ var (
 )
 
 type MatchIndexEntry struct {
-	ID          string                 `json:"id"`
-	Node        string                 `json:"node"`
-	Label       map[string]interface{} `json:"label"`
-	LabelString string                 `json:"label_string"`
-	TickRate    int                    `json:"tick_rate"`
-	HandlerName string                 `json:"handler_name"`
-	CreateTime  int64                  `json:"create_time"`
-	Size        int64                  `json:"size"`
+	ID             string                 `json:"id"`
+	Node           string                 `json:"node"`
+	Label          map[string]interface{} `json:"label"`
+	LabelString    string                 `json:"label_string"`
+	TickRate       int                    `json:"tick_rate"`
+	HandlerName    string                 `json:"handler_name"`
+	CreateTime     int64                  `json:"create_time"`
+	Size           int64                  `json:"size"`
+	LastUpdateUnix int64                  `json:"last_update_unix"`
 }
 
 type MatchJoinAttemptResult struct {
@@ -232,9 +233,10 @@ func (r *LocalMatchRegistry) processLabelUpdates(batch *index.Batch) {
 		batch.Update(bluge.Identifier(id), doc)
 		code, _ := op.Label["code"].(string)
 		op.Label["code"] = strings.ReplaceAll(code, "-", "")
+		op.LastUpdateUnix = time.Now().Unix()
 		opData, _ := json.Marshal(op)
 		if r.rh != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			r.rh.Do(ctx, r.rh.B().JsonSet().
 				Key(key).Path("$").Value(string(opData)).Build()).ToString()
@@ -741,7 +743,7 @@ func (r *LocalMatchRegistry) Join(id uuid.UUID, presences []*MatchPresence) {
 	if r.rh != nil {
 		size := r.matchCount.Load()
 		key := fmt.Sprintf(MatchKeyRedisJson, id.String())
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		r.rh.Do(ctx, r.rh.B().JsonSet().
 			Key(key).Path(".label.size").Value(strconv.FormatInt(size, 10)).Build()).ToString()
@@ -759,7 +761,7 @@ func (r *LocalMatchRegistry) Leave(id uuid.UUID, presences []*MatchPresence) {
 	if r.rh != nil {
 		size := r.matchCount.Load()
 		key := fmt.Sprintf(MatchKeyRedisJson, id.String())
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		r.rh.Do(ctx, r.rh.B().JsonSet().
 			Key(key).Path(".label.size").Value(strconv.FormatInt(size, 10)).Build()).ToString()
@@ -823,6 +825,15 @@ func (r *LocalMatchRegistry) Signal(ctx context.Context, id, data string) (strin
 		return "", runtime.ErrMatchNotFound
 	}
 	mh := m.(*MatchHandler)
+
+	if data == SignalKeepMatchAlive {
+		key := fmt.Sprintf(MatchKeyRedisJson, mh.IDStr)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		r.rh.Do(ctx, r.rh.B().JsonSet().
+			Key(key).Path(".last_update_unix").Value(strconv.FormatInt(time.Now().Unix(), 10)).Build()).ToString()
+		return "", nil
+	}
 
 	resultCh := make(chan *MatchSignalResult, 1)
 	if !mh.QueueSignal(ctx, resultCh, data) {
@@ -1014,6 +1025,9 @@ func (r *LocalMatchRegistry) ListMatchesRedisJsonSearch(ctx context.Context, lim
 			listMatchEntry = append(listMatchEntry, m)
 		}
 	}
+	listMatchExpire := make([]string, 0)
+
+	before30sUnix := time.Now().Add(-30 * time.Second).Unix()
 	// Use any eligible authoritative matches first.
 	for _, hit := range listMatchEntry {
 		// matchIDComponents := strings.SplitN(hit.ID, ".", 2)
@@ -1023,6 +1037,10 @@ func (r *LocalMatchRegistry) ListMatchesRedisJsonSearch(ctx context.Context, lim
 		// if !ok {
 		// 	continue
 		// }
+		if hit.LastUpdateUnix < before30sUnix {
+			listMatchExpire = append(listMatchExpire, hit.ID)
+			continue
+		}
 
 		// size := int32(mh.(*MatchHandler).PresenceList.Size())
 		size := int32(hit.Size)
@@ -1060,8 +1078,20 @@ func (r *LocalMatchRegistry) ListMatchesRedisJsonSearch(ctx context.Context, lim
 			HandlerName:   hit.HandlerName,
 		})
 		if len(results) == limit {
-			return results, nil
+			break
 		}
+	}
+	go func() {
+		if len(listMatchExpire) == 0 {
+			return
+		}
+		for _, id := range listMatchExpire {
+			key := fmt.Sprintf(MatchKeyRedisJson, id)
+			r.rh.Do(context.Background(), r.rh.B().Del().Key(key).Build())
+		}
+	}()
+	if len(results) > 0 {
+		return results, nil
 	}
 
 	// If relayed matches are not allowed still return any available results.

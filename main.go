@@ -197,7 +197,7 @@ func main() {
 	leaderboardScheduler.Start(runtime)
 
 	pipeline := server.NewPipeline(logger, config, db, jsonpbMarshaler, jsonpbUnmarshaler, sessionRegistry, statusRegistry, matchRegistry, partyRegistry,
-		matchmaker, tracker, router, runtime, pubSubHandler)
+		matchmaker, tracker, router, runtime, pubSubHandler, rdb)
 	statusHandler := server.NewLocalStatusHandler(logger, sessionRegistry, matchRegistry, tracker, metrics, config.GetName())
 
 	server.RegisterPubSubHandlerSession(pubSubHandler, sessionRegistry, tracker, logger)
